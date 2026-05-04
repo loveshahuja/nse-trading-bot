@@ -1,7 +1,8 @@
 name: Evening Position Update
 on:
   schedule:
-    - cron: '0 12 * * 1-5'  # 5:30 PM IST = 12:00 UTC, Mon-Fri
+    - cron: '0 12 * * 1-5'   # 5:30 PM IST = 12:00 UTC
+    - cron: '15 12 * * 1-5'  # 5:45 PM IST = 12:15 UTC (backup)
   workflow_dispatch:
 jobs:
   evening:
