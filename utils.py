@@ -326,33 +326,56 @@ def get_fii_dii():
         # Get FII/DII data
         r = session.get('https://www.nseindia.com/api/fiidiiTradeReact',
                        timeout=20)
-        if r.status_code == 200 and r.text and len(r.text) > 10:
-            data = r.json()
-            if data and isinstance(data, list):
-                fii_net = None
-                dii_net = None
-                date = ""
-                # Parse the list — each item has category field
-                for item in data:
-                    cat = item.get('category', '').upper()
-                    try:
-                        net = float(str(item.get('netValue', '0')).replace(',', ''))
-                    except:
-                        net = 0
-                    dt = item.get('date', '')
-                    if 'FII' in cat or 'FPI' in cat:
-                        fii_net = net
-                        date = dt
-                    elif 'DII' in cat:
-                        dii_net = net
-                if fii_net is not None:
-                    print(f"  ✅ FII/DII from NSE: FII=₹{fii_net:,.0f}Cr DII=₹{dii_net:,.0f}Cr ({date})")
-                    return {
-                        "date": date,
-                        "fii_net": fii_net,
-                        "dii_net": dii_net,
-                        "source": "NSE"
-                    }
+        if r.status_code == 200 and r.content:
+            # Handle gzip/compressed response
+            import gzip, zlib
+            text = None
+            # Try auto decode first
+            try:
+                text = r.text
+                if not text or text[0] != '[':
+                    text = None
+            except:
+                pass
+            # Try gzip manual decode
+            if not text:
+                try:
+                    text = gzip.decompress(r.content).decode('utf-8')
+                except:
+                    pass
+            # Try zlib
+            if not text:
+                try:
+                    text = zlib.decompress(r.content, 16+zlib.MAX_WBITS).decode('utf-8')
+                except:
+                    pass
+            if text and '[' in text:
+                import json as _json
+                data = _json.loads(text)
+                if data and isinstance(data, list):
+                    fii_net = None
+                    dii_net = None
+                    date = ""
+                    for item in data:
+                        cat = item.get('category', '').upper()
+                        try:
+                            net = float(str(item.get('netValue', '0')).replace(',', ''))
+                        except:
+                            net = 0
+                        dt = item.get('date', '')
+                        if 'FII' in cat or 'FPI' in cat:
+                            fii_net = net
+                            date = dt
+                        elif 'DII' in cat:
+                            dii_net = net
+                    if fii_net is not None:
+                        print(f"  ✅ FII/DII: FII=₹{fii_net:,.0f}Cr DII=₹{dii_net:,.0f}Cr ({date})")
+                        return {
+                            "date": date,
+                            "fii_net": fii_net,
+                            "dii_net": dii_net,
+                            "source": "NSE"
+                        }
     except Exception as e:
         print(f"  NSE FII error: {e}")
 
