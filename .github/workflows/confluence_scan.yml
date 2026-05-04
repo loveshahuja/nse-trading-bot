@@ -23,7 +23,7 @@ jobs:
         python-version: '3.11'
 
     - name: Install libraries
-      run: pip install yfinance ta pandas requests gspread google-auth feedparser
+      run: pip install yfinance ta pandas requests gspread google-auth feedparser pytz
 
     - name: Run Confluence Scanner
       env:
