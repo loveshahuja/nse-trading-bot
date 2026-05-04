@@ -74,7 +74,15 @@ def analyse_stock(sym):
         ticker = sym + ".NS"
         df = yf.download(ticker, period="3mo", interval="1d", progress=False)
         if df.empty or len(df) < 30:
-            return f"❌ No data for {sym}. Check symbol name."
+            return f"❌ No data for {sym}. Check symbol name or try after 9 AM IST."
+        # Check for NaN prices — happens outside market hours
+        curr = float(df['Close'].iloc[-1])
+        if curr != curr:  # NaN check
+            return f"⏰ <b>{sym} data not available right now</b>
+
+Yahoo Finance doesn't serve Indian stock data between 2 AM – 4 AM IST.
+
+Try again after 9 AM IST or check Zerodha directly."
         close = df['Close'].squeeze()
         volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
