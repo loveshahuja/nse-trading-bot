@@ -1,0 +1,23 @@
+name: Midday Market Update
+on:
+  schedule:
+    - cron: '30 6 * * 1-5'  # 12:00 PM IST
+  workflow_dispatch:
+jobs:
+  midday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - run: pip install yfinance ta pandas requests gspread google-auth feedparser
+    - run: python midday_update.py
+      env:
+        GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+        GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
