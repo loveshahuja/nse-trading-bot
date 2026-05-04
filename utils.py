@@ -299,10 +299,8 @@ def get_global_markets():
 
 # ── FIX 2: FII/DII — Multiple sources ────────────────────────
 def get_fii_dii():
-    """FIX 2 — Multiple fallback sources for FII/DII"""
-    print("Fetching FII/DII data...")
-
-    # Method 1: NSE with full session warmup
+    """Get FII/DII data from NSE API — confirmed working from GitHub Actions"""
+    print("Fetching FII/DII data from NSE...")
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -312,83 +310,53 @@ def get_fii_dii():
             'Referer': 'https://www.nseindia.com/',
             'Connection': 'keep-alive',
             'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
         }
         session = requests.Session()
         session.headers.update(headers)
-        # Warm up with multiple pages
+        # Full warmup — visit multiple NSE pages to get valid cookies
         session.get('https://www.nseindia.com/', timeout=15)
-        time.sleep(3)
+        time.sleep(2)
         session.get('https://www.nseindia.com/market-data/fii-dii-activity',
                    timeout=15)
-        time.sleep(3)
+        time.sleep(2)
+        session.get('https://www.nseindia.com/market-data/equity-market',
+                   timeout=15)
+        time.sleep(2)
+        # Get FII/DII data
         r = session.get('https://www.nseindia.com/api/fiidiiTradeReact',
                        timeout=20)
-        if r.status_code == 200 and r.text and r.text != '':
+        if r.status_code == 200 and r.text and len(r.text) > 10:
             data = r.json()
-            if data and len(data) > 0:
-                latest = data[0]
-                fii = float(str(latest.get('fiiNet','0')).replace(',','').replace(' ','') or 0)
-                dii = float(str(latest.get('diiNet','0')).replace(',','').replace(' ','') or 0)
-                if fii != 0 or dii != 0:
-                    print(f"  FII/DII from NSE: FII={fii}, DII={dii}")
-                    return {"date": latest.get('date',''), "fii_net": fii,
-                           "dii_net": dii, "source": "NSE"}
+            if data and isinstance(data, list):
+                fii_net = None
+                dii_net = None
+                date = ""
+                # Parse the list — each item has category field
+                for item in data:
+                    cat = item.get('category', '').upper()
+                    try:
+                        net = float(str(item.get('netValue', '0')).replace(',', ''))
+                    except:
+                        net = 0
+                    dt = item.get('date', '')
+                    if 'FII' in cat or 'FPI' in cat:
+                        fii_net = net
+                        date = dt
+                    elif 'DII' in cat:
+                        dii_net = net
+                if fii_net is not None:
+                    print(f"  ✅ FII/DII from NSE: FII=₹{fii_net:,.0f}Cr DII=₹{dii_net:,.0f}Cr ({date})")
+                    return {
+                        "date": date,
+                        "fii_net": fii_net,
+                        "dii_net": dii_net,
+                        "source": "NSE"
+                    }
     except Exception as e:
-        print(f"  NSE FII failed: {e}")
+        print(f"  NSE FII error: {e}")
 
-    # Method 2: BSE India API
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://www.bseindia.com/',
-            'Accept': 'application/json',
-        }
-        r = requests.get(
-            'https://api.bseindia.com/BseIndiaAPI/api/FIIDIIData/w',
-            headers=headers, timeout=15)
-        if r.status_code == 200 and r.text:
-            data = r.json()
-            if data:
-                item = data[0] if isinstance(data, list) else data
-                fii_keys = ['FII_NET_VALUE','fii_net_value','FIINetValue','fiiNet']
-                dii_keys = ['DII_NET_VALUE','dii_net_value','DIINetValue','diiNet']
-                fii = 0; dii = 0
-                for k in fii_keys:
-                    if k in item:
-                        try: fii = float(str(item[k]).replace(',','') or 0); break
-                        except: pass
-                for k in dii_keys:
-                    if k in item:
-                        try: dii = float(str(item[k]).replace(',','') or 0); break
-                        except: pass
-                if fii != 0 or dii != 0:
-                    print(f"  FII/DII from BSE: FII={fii}, DII={dii}")
-                    return {"date": item.get('TRADE_DATE', item.get('date','')),
-                           "fii_net": fii, "dii_net": dii, "source": "BSE"}
-    except Exception as e:
-        print(f"  BSE FII failed: {e}")
-
-    # Method 3: Moneycontrol scrape
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.moneycontrol.com/'}
-        r = requests.get(
-            'https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php',
-            headers=headers, timeout=15)
-        if r.status_code == 200:
-            text = r.text
-            import re
-            fii_match = re.search(r'FII.*?Net.*?([\-\d,\.]+)', text, re.DOTALL)
-            dii_match = re.search(r'DII.*?Net.*?([\-\d,\.]+)', text, re.DOTALL)
-            if fii_match:
-                fii = float(fii_match.group(1).replace(',',''))
-                dii = float(dii_match.group(1).replace(',','')) if dii_match else 0
-                print(f"  FII/DII from Moneycontrol: FII={fii}")
-                return {"date": datetime.now().strftime('%d-%b-%Y'),
-                       "fii_net": fii, "dii_net": dii, "source": "Moneycontrol"}
-    except Exception as e:
-        print(f"  Moneycontrol FII failed: {e}")
-
-    print("  All FII sources failed — returning None")
+    print("  FII/DII unavailable today")
     return {"date": datetime.now().strftime('%d-%b-%Y'),
             "fii_net": None, "dii_net": None, "source": "unavailable"}
 
