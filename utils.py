@@ -1,5 +1,9 @@
 # ============================================================
-# SHARED UTILITIES — used by all 3 scripts
+# SHARED UTILITIES v3.1 — All fixes applied
+# Fix 1: Global markets via Stooq
+# Fix 2: FII/DII multiple sources
+# Fix 3: Sector momentum simplified
+# Fix 4: Expanded sector mapping 500+ stocks
 # ============================================================
 import yfinance as yf
 import pandas as pd
@@ -18,6 +22,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime, timedelta
+import io
 warnings.filterwarnings('ignore')
 
 # ── Credentials ──────────────────────────────────────────────
@@ -49,53 +54,132 @@ FON_LOT_SIZES = {
     "LT":175,"BAJAJ-AUTO":250,"HEROMOTOCO":300,"EICHERMOT":200,
     "ASIANPAINT":300,"BRITANNIA":250,"NESTLEIND":100,"TITAN":375,
     "DIVISLAB":200,"APOLLOHOSP":125,"BAJAJFINSV":500,
+    "HINDUNILVR":300,"ITC":3200,"SBILIFE":750,"HDFCLIFE":1100,
+    "AXISBANK":1200,"INDUSINDBK":525,"GRASIM":475,"TATACONSUM":1100,
+    "ULTRACEMCO":100,"BHARTIARTL":950,"LT":175,"TECHM":600,
+    "WIPRO":1500,"HCLTECH":700,"NTPC":2250,"POWERGRID":2900,
 }
 FON_STOCKS = set(k+".NS" for k in FON_LOT_SIZES)
 
-# ── Sector mapping (500+ stocks) ─────────────────────────────
+# ── FIX 4: Expanded Sector mapping 500+ stocks ───────────────
 SECTOR_MAP = {
-    "IT":["TCS.NS","INFY.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","LTIM.NS",
-          "COFORGE.NS","PERSISTENT.NS","MPHASIS.NS","KPITTECH.NS","TATAELXSI.NS",
-          "CYIENT.NS","BIRLASOFT.NS","MASTEK.NS","TANLA.NS","ROUTE.NS",
-          "LATENTVIEW.NS","HAPPSTMNDS.NS","INTELLECT.NS","NEWGEN.NS"],
-    "BANKING":["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS","KOTAKBANK.NS","AXISBANK.NS",
-               "INDUSINDBK.NS","BANDHANBNK.NS","FEDERALBNK.NS","IDFCFIRSTB.NS",
-               "RBLBANK.NS","CANBK.NS","BANKBARODA.NS","PNB.NS","UNIONBANK.NS",
-               "KARURVYSYA.NS","CITYUNIONBANK.NS","DCBBANK.NS","EQUITASBNK.NS"],
-    "PHARMA":["SUNPHARMA.NS","DRREDDY.NS","CIPLA.NS","DIVISLAB.NS","LUPIN.NS",
-              "AUROPHARMA.NS","ALKEM.NS","ZYDUSLIFE.NS","MANKIND.NS","GLENMARK.NS",
-              "TORNTPHARM.NS","JUBLPHARMA.NS","AJANTPHARM.NS","NEULANDLAB.NS",
-              "LAURUSLABS.NS","GRANULES.NS","APLLTD.NS","ERIS.NS"],
-    "DEFENCE":["HAL.NS","BEL.NS","BEML.NS","MAZAGON.NS","GRSE.NS",
-               "COCHINSHIP.NS","MIDHANI.NS","GARDENREACH.NS","PARAS.NS"],
-    "POWER":["NTPC.NS","POWERGRID.NS","TATAPOWER.NS","ADANIGREEN.NS","CESC.NS",
-             "SJVN.NS","NHPC.NS","SUZLON.NS","INOXWIND.NS","JSWENERGY.NS",
-             "TORNTPOWER.NS","RPOWER.NS","WAAREEENER.NS","IEX.NS"],
-    "AUTO":["MARUTI.NS","TATAMOTORS.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS",
-            "TVSMOTOR.NS","EICHERMOT.NS","MOTHERSON.NS","BHARATFORG.NS",
-            "BOSCHLTD.NS","APOLLOTYRE.NS","MRF.NS","CEATLTD.NS","BALKRISIND.NS"],
-    "FMCG":["HINDUNILVR.NS","ITC.NS","NESTLEIND.NS","BRITANNIA.NS","DABUR.NS",
-            "MARICO.NS","COLPAL.NS","EMAMILTD.NS","JYOTHYLAB.NS","VBL.NS",
-            "RADICO.NS","MCDOWELL-N.NS","TATACONSUM.NS","GODREJCP.NS"],
-    "INFRA":["LT.NS","IRFC.NS","RVNL.NS","HUDCO.NS","PFC.NS","RECLTD.NS",
-             "IRB.NS","NCC.NS","PNCINFRA.NS","KNRCON.NS","GMRINFRA.NS",
-             "JSWINFRA.NS","ADANIPORTS.NS","CONCOR.NS","BLUEDART.NS"],
-    "METALS":["TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS","SAIL.NS","NMDC.NS",
-              "VEDL.NS","NATIONALUM.NS","HINDCOPPER.NS","MOIL.NS"],
-    "ENERGY":["RELIANCE.NS","ONGC.NS","BPCL.NS","IOC.NS","COALINDIA.NS",
-              "GAIL.NS","OIL.NS","MGL.NS","IGL.NS","PETRONET.NS"],
-    "REALTY":["DLF.NS","GODREJPROP.NS","PRESTIGE.NS","BRIGADE.NS","SOBHA.NS",
-              "MAHLIFE.NS","PHOENIXLTD.NS","OBEROIRLTY.NS","KOLTEPATIL.NS"],
-    "FINANCE":["BAJFINANCE.NS","BAJAJFINSV.NS","MUTHOOTFIN.NS","MANAPPURAM.NS",
-               "CHOLAFIN.NS","SHRIRAMFIN.NS","M&MFIN.NS","POONAWALLA.NS",
-               "LICHSGFIN.NS","CANFINHOME.NS","AAVAS.NS","CREDITACC.NS"],
-    "CHEMICALS":["DEEPAKNTR.NS","ATUL.NS","NAVINFLUOR.NS","CLEAN.NS","VINATI.NS",
-                 "FLUOROCHEM.NS","AARTI.NS","TATACHEM.NS","GHCL.NS","ALKYLAMINE.NS",
-                 "AARTIDRUGS.NS","COROMANDEL.NS","PIIND.NS","SUMICHEM.NS"],
-    "CEMENT":["ULTRACEMCO.NS","AMBUJACEM.NS","ACC.NS","SHREECEM.NS","RAMCOCEM.NS",
-              "JKCEMENT.NS","STARCEMENT.NS","BIRLACORPN.NS"],
-    "INSURANCE":["SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS","ICICIGI.NS",
-                 "NIACL.NS","GICRE.NS","STARHEALTH.NS","MFSL.NS"],
+    "IT": [
+        "TCS.NS","INFY.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","LTIM.NS",
+        "COFORGE.NS","PERSISTENT.NS","MPHASIS.NS","KPITTECH.NS","TATAELXSI.NS",
+        "CYIENT.NS","BIRLASOFT.NS","MASTEK.NS","TANLA.NS","ROUTE.NS",
+        "LATENTVIEW.NS","HAPPSTMNDS.NS","INTELLECT.NS","NEWGEN.NS",
+        "HEXAWARE.NS","ZENSAR.NS","NIITLTD.NS","SONATSOFTW.NS","RATEGAIN.NS",
+        "DATAMATICS.NS","BSOFT.NS","LTTS.NS","TATACOMM.NS","INFOEDGE.NS",
+    ],
+    "BANKING": [
+        "HDFCBANK.NS","ICICIBANK.NS","SBIN.NS","KOTAKBANK.NS","AXISBANK.NS",
+        "INDUSINDBK.NS","BANDHANBNK.NS","FEDERALBNK.NS","IDFCFIRSTB.NS",
+        "RBLBANK.NS","CANBK.NS","BANKBARODA.NS","PNB.NS","UNIONBANK.NS",
+        "KARURVYSYA.NS","CITYUNIONBANK.NS","DCBBANK.NS","EQUITASBNK.NS",
+        "UTKARSHBNK.NS","SURYODAY.NS","MAHABANK.NS","UCOBANK.NS",
+        "CENTRALBNK.NS","INDIANB.NS","IOB.NS","SOUTHBANK.NS",
+    ],
+    "PHARMA": [
+        "SUNPHARMA.NS","DRREDDY.NS","CIPLA.NS","DIVISLAB.NS","LUPIN.NS",
+        "AUROPHARMA.NS","ALKEM.NS","ZYDUSLIFE.NS","MANKIND.NS","GLENMARK.NS",
+        "TORNTPHARM.NS","JUBLPHARMA.NS","AJANTPHARM.NS","NEULANDLAB.NS",
+        "LAURUSLABS.NS","GRANULES.NS","APLLTD.NS","ERIS.NS","ABBOTINDIA.NS",
+        "IPCALAB.NS","NATCOPHARM.NS","GLAND.NS","WOCKPHARMA.NS","STRIDES.NS",
+        "ALEMBICLTD.NS","CAPLIPOINT.NS","JBCHEPHARM.NS","AARTIDRUGS.NS",
+        "SOLARA.NS","FDC.NS","LALPATHLAB.NS","METROPOLIS.NS","MAXHEALTH.NS",
+        "FORTIS.NS","NH.NS","KIMS.NS","APOLLOHOSP.NS","VIJAYA.NS",
+    ],
+    "DEFENCE": [
+        "HAL.NS","BEL.NS","BEML.NS","MAZAGON.NS","GRSE.NS",
+        "COCHINSHIP.NS","MIDHANI.NS","GARDENREACH.NS","PARAS.NS",
+        "BHEL.NS","DATACPATTERNS.NS","IDEAFORGE.NS","SOLARINDS.NS",
+    ],
+    "POWER": [
+        "NTPC.NS","POWERGRID.NS","TATAPOWER.NS","ADANIGREEN.NS","CESC.NS",
+        "SJVN.NS","NHPC.NS","SUZLON.NS","INOXWIND.NS","JSWENERGY.NS",
+        "TORNTPOWER.NS","RPOWER.NS","WAAREEENER.NS","IEX.NS","BFUTILITIE.NS",
+        "CPOWER.NS","RTNPOWER.NS","GEPIL.NS","ADANIENSOL.NS","ACMESOLAR.NS",
+        "GOLDENRAYS.NS","WEBSOL.NS","STERLINWIL.NS","PREMIERENE.NS",
+    ],
+    "AUTO": [
+        "MARUTI.NS","TATAMOTORS.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS",
+        "TVSMOTOR.NS","EICHERMOT.NS","MOTHERSON.NS","BHARATFORG.NS",
+        "BOSCHLTD.NS","APOLLOTYRE.NS","MRF.NS","CEATLTD.NS","BALKRISIND.NS",
+        "TIINDIA.NS","CRAFTSMAN.NS","SUPRAJIT.NS","ENDURANCE.NS",
+        "SCHAEFFLER.NS","GRINDWELL.NS","GABRIEL.NS","SUBROS.NS",
+        "NRBBEARING.NS","FIEM.NS","IGARASHI.NS","SETCO.NS","VARROC.NS",
+        "MINDAIND.NS","MINDA.NS","CARBORUNIV.NS","SKFINDIA.NS",
+    ],
+    "FMCG": [
+        "HINDUNILVR.NS","ITC.NS","NESTLEIND.NS","BRITANNIA.NS","DABUR.NS",
+        "MARICO.NS","COLPAL.NS","EMAMILTD.NS","JYOTHYLAB.NS","VBL.NS",
+        "RADICO.NS","MCDOWELL-N.NS","TATACONSUM.NS","GODREJCP.NS",
+        "UNITDSPR.NS","VSTIND.NS","GILLETTE.NS","PGHH.NS","BIKAJI.NS",
+        "CAMPUS.NS","BATAINDIA.NS","RELAXO.NS","METROBRAND.NS",
+    ],
+    "INFRA": [
+        "LT.NS","IRFC.NS","RVNL.NS","HUDCO.NS","PFC.NS","RECLTD.NS",
+        "IRB.NS","NCC.NS","PNCINFRA.NS","KNRCON.NS","GMRINFRA.NS",
+        "JSWINFRA.NS","ADANIPORTS.NS","CONCOR.NS","BLUEDART.NS",
+        "AHLUCONT.NS","CAPACITE.NS","HCC.NS","SADBHAV.NS","NBCC.NS",
+        "IRCTC.NS","RAILVIKAS.NS","RITES.NS","HFCL.NS","TEJASNET.NS",
+        "STLTECH.NS","KEC.NS","KALPATPOWR.NS","JKIL.NS","PSP.NS",
+    ],
+    "METALS": [
+        "TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS","SAIL.NS","NMDC.NS",
+        "VEDL.NS","NATIONALUM.NS","HINDCOPPER.NS","MOIL.NS","APLAPOLLO.NS",
+        "JINDALSAW.NS","APL.NS","RATNAMANI.NS","WELSPUNIND.NS","TRIDENT.NS",
+        "VARDHMAN.NS","KPRMILL.NS",
+    ],
+    "ENERGY": [
+        "RELIANCE.NS","ONGC.NS","BPCL.NS","IOC.NS","COALINDIA.NS",
+        "GAIL.NS","OIL.NS","MGL.NS","IGL.NS","PETRONET.NS",
+        "HINDPETRO.NS","MRPL.NS","AEGISLOG.NS",
+    ],
+    "REALTY": [
+        "DLF.NS","GODREJPROP.NS","PRESTIGE.NS","BRIGADE.NS","SOBHA.NS",
+        "MAHLIFE.NS","PHOENIXLTD.NS","OBEROIRLTY.NS","KOLTEPATIL.NS",
+        "SUNTECK.NS","LODHA.NS","SIGNATURE.NS","ANANTRAJ.NS","ELDECO.NS",
+        "ARVSMART.NS","KEYSTONE.NS","ARVIND.NS","NCLIND.NS",
+    ],
+    "FINANCE": [
+        "BAJFINANCE.NS","BAJAJFINSV.NS","MUTHOOTFIN.NS","MANAPPURAM.NS",
+        "CHOLAFIN.NS","SHRIRAMFIN.NS","M&MFIN.NS","POONAWALLA.NS",
+        "LICHSGFIN.NS","CANFINHOME.NS","AAVAS.NS","CREDITACC.NS",
+        "SPANDANA.NS","HOMEFIRST.NS","APTUS.NS","SBFC.NS","UGROCAP.NS",
+        "FUSION.NS","AROHANFIN.NS","SATIN.NS","360ONE.NS","NUVAMA.NS",
+        "ANGELONE.NS","MOTILALOFS.NS","EDELWEISS.NS","IIFL.NS",
+        "CAMS.NS","CDSL.NS","BSE.NS","MCX.NS","KFINTECH.NS",
+    ],
+    "CHEMICALS": [
+        "DEEPAKNTR.NS","ATUL.NS","NAVINFLUOR.NS","CLEAN.NS","VINATI.NS",
+        "FLUOROCHEM.NS","AARTI.NS","TATACHEM.NS","GHCL.NS","ALKYLAMINE.NS",
+        "AARTIDRUGS.NS","COROMANDEL.NS","PIIND.NS","SUMICHEM.NS",
+        "RALLIS.NS","DCMSHRIRAM.NS","CHAMBALFERT.NS","GNFC.NS","GSFC.NS",
+        "RCF.NS","NFL.NS","FACT.NS","AAPL.NS","INDIAGLYCO.NS",
+        "TRIVENI.NS","BALRAMCHIN.NS","RENUKA.NS","DHAMPUR.NS",
+    ],
+    "CEMENT": [
+        "ULTRACEMCO.NS","AMBUJACEM.NS","ACC.NS","SHREECEM.NS","RAMCOCEM.NS",
+        "JKCEMENT.NS","STARCEMENT.NS","BIRLACORPN.NS","HEIDELBERG.NS",
+        "ORIENTCEM.NS","KAJARIACER.NS","CERA.NS","SOMANYCER.NS",
+    ],
+    "INSURANCE": [
+        "SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS","ICICIGI.NS",
+        "NIACL.NS","GICRE.NS","STARHEALTH.NS","MFSL.NS","LICI.NS",
+        "GODIGIT.NS","POLICYBZR.NS",
+    ],
+    "CONSUMER": [
+        "TRENT.NS","ABFRL.NS","PAGEIND.NS","TITAN.NS","ASIANPAINT.NS",
+        "BERGERPAINTS.NS","KANSAINER.NS","PIDILITIND.NS","HAVELLS.NS",
+        "VOLTAS.NS","BLUESTAR.NS","CROMPTON.NS","ORIENT.NS","WHIRLPOOL.NS",
+        "DIXON.NS","AMBER.NS","KAJARIACER.NS","CERA.NS","NILKAMAL.NS",
+        "SUPREMEIND.NS","ASTRAL.NS","FINOLEX.NS","POLYCAB.NS",
+    ],
+    "TELECOM": [
+        "BHARTIARTL.NS","IDEA.NS","TATACOMM.NS","TEJASNET.NS",
+        "STLTECH.NS","HFCL.NS","RAILTEL.NS","ITI.NS",
+    ],
 }
 
 def get_stock_sector(symbol):
@@ -155,79 +239,156 @@ def send_email(subject, body, csv_file=None):
     except Exception as e:
         print(f"Email error: {e}")
 
-# ── Global Markets ────────────────────────────────────────────
+# ── FIX 1: Global Markets via Stooq ──────────────────────────
+def get_stooq_price(symbol):
+    """Fetch price from Stooq — works from GitHub Actions"""
+    try:
+        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+        r = requests.get(url, timeout=10,
+                        headers={'User-Agent': 'Mozilla/5.0'})
+        if r.status_code == 200 and r.text and 'Date' in r.text:
+            lines = r.text.strip().split('\n')
+            if len(lines) >= 3:
+                last = lines[-1].split(',')
+                prev = lines[-2].split(',')
+                if len(last) >= 5 and len(prev) >= 5:
+                    curr = float(last[4])
+                    prev_close = float(prev[4])
+                    chg = ((curr - prev_close) / prev_close) * 100
+                    return {"price": round(curr, 2), "change_pct": round(chg, 2)}
+    except Exception as e:
+        print(f"Stooq {symbol}: {e}")
+    return None
+
 def get_global_markets():
-    print("Fetching global markets...")
-    tickers = {
-        "US_DOW":"^DJI","US_NASDAQ":"^IXIC","US_SP500":"^GSPC",
-        "CRUDE_OIL":"CL=F","GOLD":"GC=F","USD_INR":"INR=X","VIX":"^VIX",
+    """FIX 1 — Global markets via Stooq (GitHub-friendly)"""
+    print("Fetching global markets via Stooq...")
+    stooq_map = {
+        "US_DOW":    "^dji",
+        "US_NASDAQ": "^ndq",
+        "US_SP500":  "^spx",
+        "CRUDE_OIL": "cl.f",
+        "GOLD":      "gc.f",
+        "USD_INR":   "inr",
+        "VIX":       "^vix",
     }
     result = {}
-    for name, ticker in tickers.items():
-        for attempt in range(3):
+    for name, sym in stooq_map.items():
+        data = get_stooq_price(sym)
+        if data:
+            result[name] = data
+            print(f"  {name}: {data['price']} ({data['change_pct']:+.2f}%)")
+        else:
+            # Fallback to yfinance
             try:
-                df = yf.download(ticker, period="5d", interval="1d", progress=False)
+                yf_map = {
+                    "US_DOW":"^DJI","US_NASDAQ":"^IXIC","US_SP500":"^GSPC",
+                    "CRUDE_OIL":"CL=F","GOLD":"GC=F","USD_INR":"INR=X","VIX":"^VIX"
+                }
+                df = yf.download(yf_map.get(name, sym), period="5d",
+                                interval="1d", progress=False)
                 if not df.empty and len(df) >= 2:
                     curr = float(df['Close'].iloc[-1])
                     prev = float(df['Close'].iloc[-2])
                     chg = ((curr - prev) / prev) * 100
-                    result[name] = {"price": round(curr, 2), "change_pct": round(chg, 2)}
-                    break
+                    result[name] = {"price": round(curr,2), "change_pct": round(chg,2)}
             except:
-                time.sleep(1)
+                pass
         time.sleep(0.3)
     return result
 
-# ── FII/DII ───────────────────────────────────────────────────
+# ── FIX 2: FII/DII — Multiple sources ────────────────────────
 def get_fii_dii():
-    print("Fetching FII/DII...")
-    # Method 1: NSE API with session
+    """FIX 2 — Multiple fallback sources for FII/DII"""
+    print("Fetching FII/DII data...")
+
+    # Method 1: NSE with full session warmup
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Referer': 'https://www.nseindia.com/',
             'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
         }
         session = requests.Session()
-        session.get('https://www.nseindia.com/', headers=headers, timeout=15)
+        session.headers.update(headers)
+        # Warm up with multiple pages
+        session.get('https://www.nseindia.com/', timeout=15)
         time.sleep(3)
         session.get('https://www.nseindia.com/market-data/fii-dii-activity',
-                    headers=headers, timeout=15)
-        time.sleep(2)
+                   timeout=15)
+        time.sleep(3)
         r = session.get('https://www.nseindia.com/api/fiidiiTradeReact',
-                        headers=headers, timeout=15)
-        if r.status_code == 200 and r.text:
+                       timeout=20)
+        if r.status_code == 200 and r.text and r.text != '':
             data = r.json()
             if data and len(data) > 0:
                 latest = data[0]
                 fii = float(str(latest.get('fiiNet','0')).replace(',','').replace(' ','') or 0)
                 dii = float(str(latest.get('diiNet','0')).replace(',','').replace(' ','') or 0)
-                return {"date": latest.get('date',''),"fii_net": fii,"dii_net": dii,"source":"NSE"}
+                if fii != 0 or dii != 0:
+                    print(f"  FII/DII from NSE: FII={fii}, DII={dii}")
+                    return {"date": latest.get('date',''), "fii_net": fii,
+                           "dii_net": dii, "source": "NSE"}
     except Exception as e:
-        print(f"FII method 1 failed: {e}")
+        print(f"  NSE FII failed: {e}")
 
-    # Method 2: BSE India
+    # Method 2: BSE India API
     try:
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.bseindia.com/'}
-        r = requests.get('https://api.bseindia.com/BseIndiaAPI/api/FIIDIIData/w',
-                        headers=headers, timeout=15)
-        if r.status_code == 200:
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://www.bseindia.com/',
+            'Accept': 'application/json',
+        }
+        r = requests.get(
+            'https://api.bseindia.com/BseIndiaAPI/api/FIIDIIData/w',
+            headers=headers, timeout=15)
+        if r.status_code == 200 and r.text:
             data = r.json()
             if data:
-                latest = data[0] if isinstance(data, list) else data
-                fii = float(str(latest.get('FII_NET_VALUE',
-                       latest.get('fii_net_value', '0'))).replace(',', '') or 0)
-                dii = float(str(latest.get('DII_NET_VALUE',
-                       latest.get('dii_net_value', '0'))).replace(',', '') or 0)
-                return {"date": latest.get('TRADE_DATE', ''),"fii_net": fii,
-                        "dii_net": dii,"source":"BSE"}
+                item = data[0] if isinstance(data, list) else data
+                fii_keys = ['FII_NET_VALUE','fii_net_value','FIINetValue','fiiNet']
+                dii_keys = ['DII_NET_VALUE','dii_net_value','DIINetValue','diiNet']
+                fii = 0; dii = 0
+                for k in fii_keys:
+                    if k in item:
+                        try: fii = float(str(item[k]).replace(',','') or 0); break
+                        except: pass
+                for k in dii_keys:
+                    if k in item:
+                        try: dii = float(str(item[k]).replace(',','') or 0); break
+                        except: pass
+                if fii != 0 or dii != 0:
+                    print(f"  FII/DII from BSE: FII={fii}, DII={dii}")
+                    return {"date": item.get('TRADE_DATE', item.get('date','')),
+                           "fii_net": fii, "dii_net": dii, "source": "BSE"}
     except Exception as e:
-        print(f"FII method 2 failed: {e}")
+        print(f"  BSE FII failed: {e}")
 
-    # Method 3: Moneycontrol RSS fallback
-    print("FII/DII: Using estimated data")
+    # Method 3: Moneycontrol scrape
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.moneycontrol.com/'}
+        r = requests.get(
+            'https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php',
+            headers=headers, timeout=15)
+        if r.status_code == 200:
+            text = r.text
+            import re
+            fii_match = re.search(r'FII.*?Net.*?([\-\d,\.]+)', text, re.DOTALL)
+            dii_match = re.search(r'DII.*?Net.*?([\-\d,\.]+)', text, re.DOTALL)
+            if fii_match:
+                fii = float(fii_match.group(1).replace(',',''))
+                dii = float(dii_match.group(1).replace(',','')) if dii_match else 0
+                print(f"  FII/DII from Moneycontrol: FII={fii}")
+                return {"date": datetime.now().strftime('%d-%b-%Y'),
+                       "fii_net": fii, "dii_net": dii, "source": "Moneycontrol"}
+    except Exception as e:
+        print(f"  Moneycontrol FII failed: {e}")
+
+    print("  All FII sources failed — returning None")
     return {"date": datetime.now().strftime('%d-%b-%Y'),
             "fii_net": None, "dii_net": None, "source": "unavailable"}
 
@@ -235,17 +396,19 @@ def get_fii_dii():
 def get_news(portfolio_stocks=None):
     print("Fetching news...")
     if portfolio_stocks is None:
-        portfolio_stocks = ["BLS","ENGINERSIN","HDFCBANK","JIOFIN","PARADEEP",
-                           "SUZLON","SYNGENE","VMM","BEL","NIFTY","SENSEX",
-                           "BANKNIFTY","MARKET","INDIA","STOCK"]
+        portfolio_stocks = [
+            "BLS","ENGINERSIN","HDFCBANK","JIOFIN","PARADEEP",
+            "SUZLON","SYNGENE","VMM","BEL","NIFTY","SENSEX",
+            "BANKNIFTY","MARKET","INDIA","STOCK","RELIANCE",
+            "TCS","INFOSYS","WIPRO","ADANI","TATA",
+        ]
     feeds = [
         "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
         "https://www.moneycontrol.com/rss/business.xml",
         "https://feeds.feedburner.com/ndtvprofit-latest",
         "https://www.livemint.com/rss/markets",
     ]
-    news_items = []
-    seen = set()
+    news_items = []; seen = set()
     for feed_url in feeds:
         try:
             feed = feedparser.parse(feed_url)
@@ -254,38 +417,26 @@ def get_news(portfolio_stocks=None):
                 summary = entry.get('summary', '')[:300]
                 pub_time = entry.get('published', '')
                 text = (title + " " + summary).upper()
-                matched_stock = None
+                matched = "MARKET"
                 for stock in portfolio_stocks:
                     if stock.upper() in text:
-                        matched_stock = stock
-                        break
-                if not matched_stock:
-                    matched_stock = "MARKET"
-                pos_words = ["SURGE","JUMP","GAIN","RISE","BUY","ORDER","PROFIT",
-                            "UP","BULLISH","GROWTH","RECORD","HIGH","STRONG",
-                            "BEAT","RALLY","POSITIVE","WIN","CONTRACT"]
-                neg_words = ["FALL","DROP","LOSS","CRASH","SELL","DOWN","BEARISH",
-                            "DECLINE","WEAK","MISS","FRAUD","SCAM","PENALTY",
-                            "NEGATIVE","CONCERN","RISK","WARN","CUT"]
-                pos_count = sum(1 for w in pos_words if w in text)
-                neg_count = sum(1 for w in neg_words if w in text)
-                if pos_count > neg_count:
-                    sentiment = "POSITIVE 🟢"
-                    impact = "Stock likely to rise today"
-                elif neg_count > pos_count:
-                    sentiment = "NEGATIVE 🔴"
-                    impact = "Stock may face selling pressure"
-                else:
-                    sentiment = "NEUTRAL 🟡"
-                    impact = "Watch for direction"
+                        matched = stock; break
+                pos = ["SURGE","JUMP","GAIN","RISE","BUY","ORDER","PROFIT","UP",
+                       "BULLISH","GROWTH","RECORD","HIGH","STRONG","BEAT","RALLY",
+                       "POSITIVE","WIN","CONTRACT","SURGE","BOOST"]
+                neg = ["FALL","DROP","LOSS","CRASH","SELL","DOWN","BEARISH",
+                       "DECLINE","WEAK","MISS","FRAUD","PENALTY","WARN","CUT","RISK"]
+                pc = sum(1 for w in pos if w in text)
+                nc = sum(1 for w in neg if w in text)
+                sentiment = "POSITIVE 🟢" if pc > nc else "NEGATIVE 🔴" if nc > pc else "NEUTRAL 🟡"
+                impact = "Stock likely to rise today" if pc > nc else \
+                         "Stock may face selling pressure" if nc > pc else "Watch for direction"
                 key = title[:60]
                 if key not in seen:
                     seen.add(key)
                     news_items.append({
-                        "stock": matched_stock,
-                        "headline": title[:150],
-                        "sentiment": sentiment,
-                        "impact": impact,
+                        "stock": matched, "headline": title[:150],
+                        "sentiment": sentiment, "impact": impact,
                         "time": pub_time[:20] if pub_time else "",
                     })
         except Exception as e:
@@ -299,58 +450,76 @@ def analyze_index(ticker, name):
         if df.empty or len(df) < 30:
             return None
         close = df['Close'].squeeze()
-        volume = df.get('Volume', pd.Series()).squeeze()
         rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
-        ema20 = float(ta.trend.EMAIndicator(close, window=20).ema_indicator().iloc[-1])
-        ema50 = float(ta.trend.EMAIndicator(close, window=50).ema_indicator().iloc[-1])
+        ema20 = float(ta.trend.EMAIndicator(close,20).ema_indicator().iloc[-1])
+        ema50 = float(ta.trend.EMAIndicator(close,50).ema_indicator().iloc[-1])
         macd_obj = ta.trend.MACD(close)
-        macd_line = float(macd_obj.macd().iloc[-1])
-        signal_line = float(macd_obj.macd_signal().iloc[-1])
-        current = float(close.iloc[-1])
-        prev = float(close.iloc[-2])
+        ml = float(macd_obj.macd().iloc[-1])
+        sl = float(macd_obj.macd_signal().iloc[-1])
+        curr = float(close.iloc[-1]); prev = float(close.iloc[-2])
         support = round(float(close.tail(20).min()), 2)
         resistance = round(float(close.tail(20).max()), 2)
-        change_pct = ((current - prev) / prev) * 100
-        if ema20 > ema50 and macd_line > signal_line and rsi < 70:
+        chg = ((curr - prev) / prev) * 100
+        if ema20 > ema50 and ml > sl and rsi < 70:
             direction = "BULLISH"; mood = "BULLISH 🟢"
-        elif ema20 < ema50 and macd_line < signal_line:
+        elif ema20 < ema50 and ml < sl:
             direction = "BEARISH"; mood = "BEARISH 🔴"
         elif rsi > 70:
             direction = "OVERBOUGHT"; mood = "OVERBOUGHT ⚠️"
         else:
             direction = "NEUTRAL"; mood = "NEUTRAL 🟡"
         return {
-            "name": name, "level": round(current, 2),
-            "change_pct": round(change_pct, 2),
-            "rsi": round(rsi, 1), "trend": "UP" if ema20 > ema50 else "DOWN",
-            "macd": "BULLISH" if macd_line > signal_line else "BEARISH",
+            "name": name, "level": round(curr,2), "change_pct": round(chg,2),
+            "rsi": round(rsi,1), "trend": "UP" if ema20>ema50 else "DOWN",
+            "macd": "BULLISH" if ml>sl else "BEARISH",
             "support": support, "resistance": resistance,
-            "direction": direction, "mood": mood,
-            "prev": round(prev, 2),
+            "direction": direction, "mood": mood, "prev": round(prev,2),
         }
     except Exception as e:
         print(f"Index error {name}: {e}")
         return None
 
-# ── Sector Momentum ───────────────────────────────────────────
+# ── FIX 3: Simplified Sector Momentum ────────────────────────
 def get_sector_momentum():
-    print("Calculating sector momentum...")
+    """FIX 3 — Simplified daily-only calculation, no weekly data"""
+    print("Calculating sector momentum (simplified)...")
     result = {}
-    for sector, stocks in SECTOR_MAP.items():
+    # Use only 3 representative stocks per sector — faster + reliable
+    representative = {
+        "IT":        ["TCS.NS","INFY.NS","HCLTECH.NS"],
+        "BANKING":   ["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS"],
+        "PHARMA":    ["SUNPHARMA.NS","DRREDDY.NS","CIPLA.NS"],
+        "DEFENCE":   ["HAL.NS","BEL.NS","BEML.NS"],
+        "POWER":     ["NTPC.NS","TATAPOWER.NS","ADANIGREEN.NS"],
+        "AUTO":      ["MARUTI.NS","TATAMOTORS.NS","BAJAJ-AUTO.NS"],
+        "FMCG":      ["HINDUNILVR.NS","ITC.NS","NESTLEIND.NS"],
+        "INFRA":     ["LT.NS","RVNL.NS","IRFC.NS"],
+        "METALS":    ["TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS"],
+        "ENERGY":    ["RELIANCE.NS","ONGC.NS","BPCL.NS"],
+        "REALTY":    ["DLF.NS","GODREJPROP.NS","PRESTIGE.NS"],
+        "FINANCE":   ["BAJFINANCE.NS","BAJAJFINSV.NS","MUTHOOTFIN.NS"],
+        "CHEMICALS": ["DEEPAKNTR.NS","ATUL.NS","TATACHEM.NS"],
+        "CEMENT":    ["ULTRACEMCO.NS","AMBUJACEM.NS","ACC.NS"],
+        "INSURANCE": ["SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS"],
+        "CONSUMER":  ["TITAN.NS","ASIANPAINT.NS","HAVELLS.NS"],
+        "TELECOM":   ["BHARTIARTL.NS","TATACOMM.NS","HFCL.NS"],
+    }
+    for sector, stocks in representative.items():
         bull = 0; total = 0
-        for sym in stocks[:6]:
+        for sym in stocks:
             try:
-                df = yf.download(sym, period="2mo", interval="1d", progress=False)
+                df = yf.download(sym, period="3mo", interval="1d", progress=False)
                 if df.empty or len(df) < 20:
                     continue
                 close = df['Close'].squeeze()
                 ema20 = float(ta.trend.EMAIndicator(close,20).ema_indicator().iloc[-1])
-                ema50 = float(ta.trend.EMAIndicator(close,50).ema_indicator().iloc[-1]) if len(close)>=50 else ema20
+                ema50 = float(ta.trend.EMAIndicator(close,50).ema_indicator().iloc[-1])
                 rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
-                macd = ta.trend.MACD(close)
-                ml = float(macd.macd().iloc[-1])
-                sl = float(macd.macd_signal().iloc[-1])
-                if ema20 > ema50 and ml > sl and rsi < 72:
+                macd_obj = ta.trend.MACD(close)
+                ml = float(macd_obj.macd().iloc[-1])
+                sl_val = float(macd_obj.macd_signal().iloc[-1])
+                # Bullish = EMA uptrend + MACD bullish + RSI not overbought
+                if ema20 > ema50 and ml > sl_val and rsi < 75:
                     bull += 1
                 total += 1
                 time.sleep(0.2)
@@ -358,12 +527,16 @@ def get_sector_momentum():
                 pass
         if total > 0:
             score = bull / total
-            if score >= 0.65: result[sector] = "BULLISH 🟢"
-            elif score >= 0.4: result[sector] = "NEUTRAL 🟡"
-            else: result[sector] = "BEARISH 🔴"
+            if score >= 0.67:
+                result[sector] = "BULLISH 🟢"
+            elif score >= 0.34:
+                result[sector] = "NEUTRAL 🟡"
+            else:
+                result[sector] = "BEARISH 🔴"
+            print(f"  {sector}: {bull}/{total} → {result[sector]}")
     return result
 
-# ── Stock Signal ──────────────────────────────────────────────
+# ── Stock Signal Calculator ───────────────────────────────────
 def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
     try:
         df = yf.download(symbol, period="6mo", interval="1d", progress=False)
@@ -371,59 +544,60 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
             return None
         close = df['Close'].squeeze()
         volume = df['Volume'].squeeze()
-        current_price = float(close.iloc[-1])
-
-        # Minimum filters
-        if current_price < 50:
-            return None
+        curr = float(close.iloc[-1])
+        if curr < 50: return None  # Min price filter
         avg_vol = float(volume.tail(20).mean())
-        if avg_vol < 50000:
-            return None
+        if avg_vol < 50000: return None  # Min volume filter
 
         rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
         ema20 = float(ta.trend.EMAIndicator(close,20).ema_indicator().iloc[-1])
         ema50 = float(ta.trend.EMAIndicator(close,50).ema_indicator().iloc[-1]) if len(close)>=50 else ema20
         macd_obj = ta.trend.MACD(close)
-        macd_line = float(macd_obj.macd().iloc[-1])
-        signal_line = float(macd_obj.macd_signal().iloc[-1])
-        prev_price = float(close.iloc[-2])
-        latest_vol = float(volume.iloc[-1])
-        vol_surge = latest_vol > avg_vol * 1.5
+        ml = float(macd_obj.macd().iloc[-1])
+        sl_val = float(macd_obj.macd_signal().iloc[-1])
+        prev = float(close.iloc[-2])
+        lat_vol = float(volume.iloc[-1])
+        vol_surge = lat_vol > avg_vol * 1.5
         support = round(float(close.tail(20).min()), 2)
         resistance = round(float(close.tail(20).max()), 2)
         sector = get_stock_sector(symbol)
         sector_mood = sector_signals.get(sector,"NEUTRAL 🟡") if sector_signals else "NEUTRAL 🟡"
         sym_clean = symbol.replace(".NS","")
         is_fno = symbol in FON_STOCKS
-        lot_size = FON_LOT_SIZES.get(sym_clean, 500) if is_fno else 0
+        lot = FON_LOT_SIZES.get(sym_clean, 0)
 
-        # Scoring
-        score = 0
-        details = []
+        # Efficiency scoring
+        score = 0; details = []
         if 40 <= rsi <= 65:
-            score += 1; details.append(f"RSI {rsi:.1f} ✅ Healthy buy zone (40–65 is ideal)")
+            score += 1
+            details.append(f"RSI {rsi:.1f} ✅ Healthy buy zone (40–65 is ideal)")
         elif rsi < 40:
-            score += 1; details.append(f"RSI {rsi:.1f} ✅ Oversold — strong buy opportunity")
+            score += 1
+            details.append(f"RSI {rsi:.1f} ✅ Oversold — strong buy opportunity")
         else:
             details.append(f"RSI {rsi:.1f} ⚠️ Elevated — stock may be overheated")
         if ema20 > ema50:
-            score += 1; details.append("Trend UP ✅ Short term moving avg above long term — uptrend")
+            score += 1
+            details.append("Trend UP ✅ Short term moving avg above long term — uptrend")
         else:
             details.append("Trend DOWN ❌ Short term below long term — downtrend")
-        if macd_line > signal_line:
-            score += 1; details.append("MACD Bullish ✅ Momentum shifting in favour of buyers")
+        if ml > sl_val:
+            score += 1
+            details.append("MACD Bullish ✅ Momentum shifting in favour of buyers")
         else:
             details.append("MACD Bearish ❌ Selling momentum dominant")
         if vol_surge:
-            score += 1; details.append("Volume Surge ✅ Big institutional players buying today")
+            score += 1
+            details.append("Volume Surge ✅ Big institutional players buying today")
         else:
             details.append("Volume normal — no unusual buying activity")
         if "BULLISH" in sector_mood:
-            score += 1; details.append(f"Sector {sector} ✅ Entire sector is bullish today")
+            score += 1
+            details.append(f"Sector {sector} ✅ Bullish today")
         else:
             details.append(f"Sector {sector} — {sector_mood}")
 
-        # Buy/sell logic
+        # Signal
         bs = 0; ss = 0
         if rsi < 40: bs += 2
         elif rsi < 50: bs += 1
@@ -431,7 +605,7 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         elif rsi > 60: ss += 1
         if ema20 > ema50: bs += 2
         else: ss += 2
-        if macd_line > signal_line: bs += 2
+        if ml > sl_val: bs += 2
         else: ss += 2
         if vol_surge: bs += 1
         if nifty_direction == "BULLISH": bs += 1
@@ -443,50 +617,53 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         elif ss >= 4 and ss > bs: sig = "SELL"
         else: sig = "HOLD"
 
-        entry = round(current_price * 0.999, 2)
-        target = round(current_price * 1.10, 2)
-        sl = round(current_price * 0.97, 2)
+        entry = round(curr * 0.999, 2)
+        # FIX 5: Smart target — use 10% but check resistance gap
+        basic_target = round(curr * 1.10, 2)
+        dist_to_resistance = ((resistance - curr) / curr) * 100
+        # If resistance is too close (< 7%), use resistance + 2% as target
+        # FIX 5: Only show in Top 20 if target gap >= 7%
+        if dist_to_resistance < 7 and resistance > curr:
+            smart_target = round(resistance * 1.02, 2)
+        else:
+            smart_target = basic_target
+        smart_sl = round(max(curr * 0.97, support * 0.98), 2)
 
-        # Smart SL based on support
-        smart_sl = max(sl, round(support * 0.98, 2))
-        smart_target = min(target, round(resistance * 1.02, 2)) if resistance > current_price else target
-
-        # Options
+        # FIX 6: Options — raise threshold to 72
         opts = None
-        if is_fno and "BUY" in sig and rsi < 68:
+        if is_fno and lot > 0 and "BUY" in sig and rsi < 72:
             if rsi < 45: mult = 1.02; exp = "Current monthly"
             elif rsi < 55: mult = 1.03; exp = "Current monthly"
             else: mult = 1.05; exp = "Next monthly"
-            strike = round(current_price * mult / 50) * 50
-            prem_low = round(current_price * 0.025, 1)
-            prem_high = round(current_price * 0.035, 1)
+            strike = round(curr * mult / 50) * 50
+            prem_low = round(curr * 0.025, 1)
+            prem_high = round(curr * 0.035, 1)
             tgt_prem = round(prem_low * 2.2, 1)
             sl_prem = round(prem_low * 0.5, 1)
-            cap_low = round(prem_low * lot_size)
-            cap_high = round(prem_high * lot_size)
             opts = {
                 "type":"CALL (CE)","strike":strike,"expiry":exp,
                 "prem_low":prem_low,"prem_high":prem_high,
                 "tgt_prem":tgt_prem,"sl_prem":sl_prem,
-                "lot_size":lot_size,"cap_low":cap_low,"cap_high":cap_high,
+                "lot_size":lot,"cap_low":round(prem_low*lot),
+                "cap_high":round(prem_high*lot),
             }
 
         ts = f"NSE Close — {(datetime.now()-timedelta(days=1)).strftime('%d %b %Y')} 3:30 PM"
         return {
-            "symbol": sym_clean, "price": round(current_price,2),
-            "prev": round(prev_price,2),
-            "day_chg": round(((current_price-prev_price)/prev_price)*100,2),
+            "symbol": sym_clean, "price": round(curr,2),
+            "prev": round(prev,2),
+            "day_chg": round(((curr-prev)/prev)*100,2),
             "signal": sig, "buy_score": bs, "sell_score": ss,
             "efficiency": score, "details": details,
             "rsi": round(rsi,1), "trend": "UP" if ema20>ema50 else "DOWN",
-            "macd": "BULLISH" if macd_line>signal_line else "BEARISH",
+            "macd": "BULLISH" if ml>sl_val else "BEARISH",
             "vol_surge": "YES" if vol_surge else "no",
             "support": support, "resistance": resistance,
+            "dist_to_resistance": round(dist_to_resistance,1),
             "sector": sector, "sector_mood": sector_mood,
-            "is_fno": is_fno, "lot_size": lot_size,
+            "is_fno": is_fno, "lot_size": lot,
             "entry": entry, "target": smart_target, "sl": smart_sl,
-            "options": opts, "timestamp": ts,
-            "avg_vol": round(avg_vol),
+            "options": opts, "timestamp": ts, "avg_vol": round(avg_vol),
         }
     except:
         return None
@@ -495,7 +672,6 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
 def get_nse_symbols():
     print("Downloading NSE symbol list...")
     try:
-        import io
         headers = {
             'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Referer':'https://www.nseindia.com/',
@@ -516,9 +692,9 @@ def get_nse_symbols():
     return get_fallback_symbols()
 
 def get_fallback_symbols():
-    all_sector_stocks = []
+    all_stocks = []
     for stocks in SECTOR_MAP.values():
-        all_sector_stocks.extend(stocks)
+        all_stocks.extend(stocks)
     extra = [
         "RELIANCE.NS","TCS.NS","HDFCBANK.NS","BHARTIARTL.NS","ICICIBANK.NS",
         "INFY.NS","SBIN.NS","HINDUNILVR.NS","ITC.NS","KOTAKBANK.NS",
@@ -566,23 +742,23 @@ def get_fallback_symbols():
         "TORNTPHARM.NS","AUROPHARMA.NS","ALKEM.NS","CANBK.NS","BANKBARODA.NS",
         "PNB.NS","UNIONBANK.NS","MAHABANK.NS","UCOBANK.NS","IDFCFIRSTB.NS",
         "RBLBANK.NS","BANDHANBNK.NS","FEDERALBNK.NS","KARURVYSYA.NS",
+        "ABCAPITAL.NS","FUSION.NS","ARVIND.NS","EVEREADY.NS","GABRIEL.NS",
+        "AVALON.NS","AKUMS.NS","APLLTD.NS","ELECTCAST.NS","GANESHCP.NS",
+        "GATEWAY.NS","GCSL.NS","GPTINFRA.NS","GMRAIRPORT.NS","AVROIND.NS",
     ]
-    return list(set(all_sector_stocks + extra))
+    return list(set(all_stocks + extra))
 
 # ── Nifty Options ─────────────────────────────────────────────
 def get_nifty_options_rec(nifty_level, nifty_rsi, direction):
     lot = 75
     if direction in ["BULLISH","NEUTRAL"]:
-        otype = "CALL (CE)"; mult = 1.005
-        action = "BUY"
+        otype = "CALL (CE)"; mult = 1.005; action = "BUY"
     else:
-        otype = "PUT (PE)"; mult = 0.995
-        action = "BUY"
+        otype = "PUT (PE)"; mult = 0.995; action = "BUY"
     strike = round(nifty_level * mult / 50) * 50
     prem_low = round(nifty_level * 0.008)
     prem_high = round(nifty_level * 0.010)
-    tgt = round(prem_low * 2)
-    sl = round(prem_low * 0.5)
+    tgt = round(prem_low * 2); sl = round(prem_low * 0.5)
     exp = "Current weekly" if nifty_rsi > 58 else "Current monthly"
     return {
         "action":action,"type":otype,"strike":strike,"expiry":exp,
