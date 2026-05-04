@@ -391,10 +391,14 @@ def run():
             print(f"  Progress: {i+1}/{len(nse_syms)} | Valid: {len(all_results)}")
         time.sleep(0.25)
 
-    # Step 6: Rank
-    strong = sorted([r for r in all_results if r['signal']=="STRONG BUY"],
+    # Step 6: Rank — FIX 5: Filter stocks where target < 7% away
+    def has_good_target(r):
+        target_gap = ((r['target'] - r['price']) / r['price']) * 100
+        return target_gap >= 7.0
+
+    strong = sorted([r for r in all_results if r['signal']=="STRONG BUY" and has_good_target(r)],
                     key=lambda x: (x['efficiency'], x['buy_score']), reverse=True)
-    buys = sorted([r for r in all_results if r['signal']=="BUY"],
+    buys = sorted([r for r in all_results if r['signal']=="BUY" and has_good_target(r)],
                   key=lambda x: (x['efficiency'], x['buy_score']), reverse=True)
     top20 = (strong + buys)[:20]
     total = len(all_results)
