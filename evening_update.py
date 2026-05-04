@@ -281,7 +281,7 @@ def build_email_evening(today, now, global_data, fii_dii, news, nifty, banknifty
     nifty_mood = nifty['mood'] if nifty else "NEUTRAL 🟡"
 
     html = f"""<html><body style='font-family:Arial,sans-serif;max-width:1000px;margin:auto;padding:20px;color:#2c3e50'>
-{html_header('🌆 Evening Position Update v3.0', f'{today} | {now} IST | ⏰ All prices: Today 3:30 PM NSE Official Close', '#1a3a4a', '#2ecc71')}
+{html_header('🌆 Evening Position Update v3.0', f'{today} | {now} | ⏰ All prices: Today 3:30 PM NSE Official Close', '#1a3a4a', '#2ecc71')}
 
 <div style='background:{"#eafaf1" if total_pnl>=0 else "#fdf2f2"};padding:15px;border-radius:8px;border-left:4px solid {total_color};margin-bottom:20px'>
 <h3 style='margin:0;color:{total_color}'>💰 Today's Closing P&L: ₹{total_pnl:+,.0f} ({total_pnl_pct:+.1f}%)</h3>

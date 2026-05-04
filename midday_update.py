@@ -208,7 +208,7 @@ def build_email_midday(today, now, global_data, fii_dii, news, nifty, banknifty,
     nifty_mood = nifty['mood'] if nifty else "NEUTRAL 🟡"
 
     html = f"""<html><body style='font-family:Arial,sans-serif;max-width:1000px;margin:auto;padding:20px;color:#2c3e50'>
-{html_header('☀️ Midday Market Update v3.0', f'{today} | {now} IST | ⏰ Prices: Live (15 min delayed)', '#1a5276', '#2980b9')}
+{html_header('☀️ Midday Market Update v3.0', f'{today} | {now} | ⏰ Prices: Live (15 min delayed)', '#1a5276', '#2980b9')}
 
 <div style='background:#eaf4fb;padding:15px;border-radius:8px;border-left:4px solid {mood_color(nifty_mood)};margin-bottom:20px'>
 <h3 style='margin:0'>🌡️ Mid-Session Market Mood: <span style='color:{mood_color(nifty_mood)}'>{nifty_mood}</span></h3>
