@@ -14,6 +14,8 @@ import gspread
 import warnings
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import pytz
+IST = pytz.timezone('Asia/Kolkata')
 import time
 warnings.filterwarnings('ignore')
 
@@ -143,7 +145,7 @@ Capital: ~₹{cap:,}
 Target : ₹{round(prem*2.2,1)} (+120%)
 SL     : ₹{round(prem*0.5,1)}"""
 
-        now = datetime.now().strftime('%d %b %Y %I:%M %p')
+        now = datetime.now(IST).strftime('%d %b %Y %I:%M %p IST')
         return f"""🔍 <b>ANALYSIS — {sym}</b>
 ⏰ {now} (15 min delayed)
 
@@ -174,7 +176,7 @@ SL     : ₹{sl_price} (-3%)
 
 def cmd_market():
     try:
-        msg = f"📊 <b>MARKET NOW</b>\n⏰ {datetime.now().strftime('%d %b %Y %I:%M %p')} (15 min delayed)\n\n"
+        msg = f"📊 <b>MARKET NOW</b>\n⏰ {datetime.now(IST).strftime('%d %b %Y %I:%M %p IST')} (15 min delayed)\n\n"
         for name, ticker in [("Nifty 50","^NSEI"),("Bank Nifty","^NSEBANK"),("Sensex","^BSESN")]:
             df = yf.download(ticker, period="5d", interval="1d", progress=False)
             if not df.empty and len(df) >= 2:
@@ -269,7 +271,7 @@ def cmd_portfolio(sheet):
         records = ws.get_all_records()
         if not records:
             return "📊 <b>No open trades</b>\n\nRecord a trade:\n/buy STOCK PRICE QTY\nExample: /buy BEL 435 50"
-        msg = f"💼 <b>OPEN POSITIONS</b>\n⏰ {datetime.now().strftime('%d %b %Y %I:%M %p')}\n\n"
+        msg = f"💼 <b>OPEN POSITIONS</b>\n⏰ {datetime.now(IST).strftime('%d %b %Y %I:%M %p IST')}\n\n"
         total = 0
         for r in records:
             stock = r.get('Stock',''); entry = float(r.get('Entry Price',0))
@@ -336,7 +338,7 @@ def process_message(text, chat_id):
     elif cmd == '/compare':
         return cmd_compare(args)
     elif cmd == '/ping':
-        return f"🟢 Bot is alive!\n⏰ {datetime.now().strftime('%d %b %Y %I:%M %p')}"
+        return f"🟢 Bot is alive!\n⏰ {datetime.now(IST).strftime('%d %b %Y %I:%M %p IST')}"
     return None
 
 # ── Webhook endpoint ──────────────────────────────────────────
@@ -363,7 +365,7 @@ def webhook():
 def health():
     return jsonify({
         "status": "alive",
-        "time": datetime.now().strftime('%d %b %Y %I:%M %p'),
+        "time": datetime.now(IST).strftime('%d %b %Y %I:%M %p IST'),
         "bot": "LoveshNSEBot"
     })
 
