@@ -78,11 +78,7 @@ def analyse_stock(sym):
         # Check for NaN prices — happens outside market hours
         curr = float(df['Close'].iloc[-1])
         if curr != curr:  # NaN check
-            return f"⏰ <b>{sym} data not available right now</b>
-
-Yahoo Finance doesn't serve Indian stock data between 2 AM – 4 AM IST.
-
-Try again after 9 AM IST or check Zerodha directly."
+            return f"⏰ {sym} data unavailable right now. Yahoo Finance does not serve Indian stocks between 2-4 AM IST. Try again after 9 AM IST."
         close = df['Close'].squeeze()
         volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
