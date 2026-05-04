@@ -70,19 +70,28 @@ def send_reply(chat_id, message):
 
 def analyse_stock(sym):
     try:
+        import math
         sym = sym.upper().replace(".NS","")
         ticker = sym + ".NS"
+
+        # Time check — Yahoo Finance unreliable 1AM-6AM IST
+        now_ist = datetime.now(IST)
+        hour = now_ist.hour
+        if 1 <= hour <= 6:
+            t = now_ist.strftime('%I:%M %p IST')
+            return "⏰ Market data unavailable at " + t + ". Yahoo Finance does not serve Indian stocks 1-6 AM IST. Try after 6 AM."
+
         df = yf.download(ticker, period="3mo", interval="1d", progress=False)
         if df.empty or len(df) < 30:
-            return f"❌ No data for {sym}. Check symbol name or try after 9 AM IST."
-        # Check for NaN prices — happens outside market hours
-        curr = float(df['Close'].iloc[-1])
-        if curr != curr:  # NaN check
-            return f"⏰ {sym} data unavailable right now. Yahoo Finance does not serve Indian stocks between 2-4 AM IST. Try again after 9 AM IST."
+            return f"❌ No data for {sym}. Check symbol name."
         close = df['Close'].squeeze()
         volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
         prev = float(close.iloc[-2])
+
+        # NaN check
+        if math.isnan(curr) or math.isnan(prev):
+            return "⏰ " + sym + " data unavailable right now. Yahoo Finance not serving data at this hour. Try after 6 AM IST."
         rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
         ema20 = float(ta.trend.EMAIndicator(close,20).ema_indicator().iloc[-1])
         ema50 = float(ta.trend.EMAIndicator(close,50).ema_indicator().iloc[-1])
