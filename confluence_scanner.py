@@ -5,6 +5,8 @@
 # Runs every 2 hours during market hours
 # ============================================================
 from utils import *
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 
 # ── Confluence thresholds ─────────────────────────────────────
 ULTRA_BUY_SCORE   = 18   # ~80% win probability
@@ -598,8 +600,8 @@ def build_email_confluence(results, today, now, scan_count):
     return html
 
 def run():
-    today = datetime.now().strftime('%d %b %Y')
-    now = datetime.now().strftime('%I:%M %p')
+    today = datetime.now(IST).strftime('%d %b %Y')
+    now = datetime.now(IST).strftime('%I:%M %p IST')
     print(f"\n{'='*60}\nConfluence Scanner v1.0 — {today} {now}\n{'='*60}")
 
     # Get market context
