@@ -308,23 +308,19 @@ def get_fii_dii():
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
             'Referer': 'https://www.nseindia.com/',
             'Connection': 'keep-alive',
             'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
         }
         session = requests.Session()
         session.headers.update(headers)
         # Full warmup — visit multiple NSE pages to get valid cookies
-        session.get('https://www.nseindia.com/', timeout=15)
-        time.sleep(2)
-        session.get('https://www.nseindia.com/market-data/fii-dii-activity',
-                   timeout=15)
-        time.sleep(2)
-        session.get('https://www.nseindia.com/market-data/equity-market',
-                   timeout=15)
-        time.sleep(2)
+        # Warm up session — homepage may return 403 but sets cookies
+        try:
+            session.get('https://www.nseindia.com/', timeout=15)
+        except:
+            pass
+        time.sleep(3)
         # Get FII/DII data
         r = session.get('https://www.nseindia.com/api/fiidiiTradeReact',
                        timeout=20)
