@@ -3,6 +3,8 @@
 # Full NSE scan + all 6 forces + detailed explanations
 # ============================================================
 from utils import *
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 
 def build_tg_message(today, global_data, fii_dii, news, nifty, banknifty,
                      sensex, sector_signals, portfolio_results, top20, total):
@@ -349,8 +351,8 @@ def save_scan_to_sheets(sheet, top20, portfolio_results, today):
         print(f"Sheets save error: {e}")
 
 def run():
-    today = datetime.now().strftime('%d %b %Y')
-    now = datetime.now().strftime('%I:%M %p')
+    today = datetime.now(IST).strftime('%d %b %Y')
+    now = datetime.now(IST).strftime('%I:%M %p IST')
     print(f"\n{'='*60}\nNSE Morning Scanner v3.0 — {today} {now}\n{'='*60}")
 
     sheet = setup_sheets()
@@ -408,7 +410,7 @@ def run():
     if sheet:
         save_scan_to_sheets(sheet, top20, portfolio_results, today)
 
-    csv_file = f"scan_{datetime.now().strftime('%Y%m%d')}.csv"
+    csv_file = f"scan_{datetime.now(IST).strftime('%Y%m%d')}.csv"
     if all_results:
         pd.DataFrame(all_results).to_csv(csv_file, index=False)
 

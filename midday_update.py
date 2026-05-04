@@ -3,6 +3,8 @@
 # Full report: live market + open trades + updated signals
 # ============================================================
 from utils import *
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 
 def get_open_trades(sheet):
     try:
@@ -266,8 +268,8 @@ Use /analyse STOCKNAME in Telegram for instant analysis of any stock.
     return html
 
 def run():
-    today = datetime.now().strftime('%d %b %Y')
-    now = datetime.now().strftime('%I:%M %p')
+    today = datetime.now(IST).strftime('%d %b %Y')
+    now = datetime.now(IST).strftime('%I:%M %p IST')
     print(f"\n{'='*60}\nMidday Update v3.0 — {today} {now}\n{'='*60}")
 
     sheet = setup_sheets()
@@ -297,7 +299,7 @@ def run():
                 continue
             try:
                 ed = datetime.strptime(t.get('Entry Date',''), '%d %b %Y')
-                days = (datetime.now() - ed).days
+                days = (datetime.now(IST).replace(tzinfo=None) - ed).days
             except:
                 days = int(t.get('Days Held', 0))
             pnl = (pd_data['current'] - entry) * qty

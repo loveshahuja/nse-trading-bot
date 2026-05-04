@@ -4,6 +4,8 @@
 # NO repetitive scan — purely about YOUR trades
 # ============================================================
 from utils import *
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 
 def get_open_trades(sheet):
     try:
@@ -19,7 +21,7 @@ def update_days_held(sheet, trades):
         for i, r in enumerate(records, 2):
             try:
                 ed = datetime.strptime(r.get('Entry Date',''), '%d %b %Y')
-                days = (datetime.now() - ed).days
+                days = (datetime.now(IST).replace(tzinfo=None) - ed).days
                 ws.update_cell(i, list(r.keys()).index('Days Held')+1, days)
             except:
                 pass
@@ -346,8 +348,8 @@ Morning scan arrives at 8:00 AM tomorrow with fresh Top 20 opportunities.
     return html
 
 def run():
-    today = datetime.now().strftime('%d %b %Y')
-    now = datetime.now().strftime('%I:%M %p')
+    today = datetime.now(IST).strftime('%d %b %Y')
+    now = datetime.now(IST).strftime('%I:%M %p IST')
     print(f"\n{'='*60}\nEvening Update v3.0 — {today} {now}\n{'='*60}")
 
     sheet = setup_sheets()
@@ -381,7 +383,7 @@ def run():
             if not pd_data: continue
             try:
                 ed = datetime.strptime(t.get('Entry Date',''), '%d %b %Y')
-                days = (datetime.now() - ed).days
+                days = (datetime.now(IST).replace(tzinfo=None) - ed).days
             except:
                 days = int(t.get('Days Held', 0))
             pnl = (pd_data['close'] - entry) * qty

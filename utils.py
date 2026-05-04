@@ -22,6 +22,8 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime, timedelta
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 import io
 warnings.filterwarnings('ignore')
 
@@ -380,7 +382,7 @@ def get_fii_dii():
         print(f"  NSE FII error: {e}")
 
     print("  FII/DII unavailable today")
-    return {"date": datetime.now().strftime('%d-%b-%Y'),
+    return {"date": datetime.now(IST).strftime('%d-%b-%Y'),
             "fii_net": None, "dii_net": None, "source": "unavailable"}
 
 # ── News ──────────────────────────────────────────────────────
@@ -639,7 +641,7 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
                 "cap_high":round(prem_high*lot),
             }
 
-        ts = f"NSE Close — {(datetime.now()-timedelta(days=1)).strftime('%d %b %Y')} 3:30 PM"
+        ts = f"NSE Close — {(datetime.now(IST)-timedelta(days=1)).strftime('%d %b %Y')} 3:30 PM"
         return {
             "symbol": sym_clean, "price": round(curr,2),
             "prev": round(prev,2),
