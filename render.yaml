@@ -2,7 +2,7 @@ services:
   - type: web
     name: lovesh-trading-bot
     env: python
-    buildCommand: pip install flask yfinance ta pandas requests gspread google-auth
+    buildCommand: pip install -r requirements.txt
     startCommand: python bot_server.py
     envVars:
       - key: TELEGRAM_TOKEN
@@ -12,4 +12,8 @@ services:
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_CREDENTIALS
+        sync: false
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_PASSWORD
         sync: false
