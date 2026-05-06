@@ -32,7 +32,7 @@ def get_closing_price(symbol):
     try:
         import math
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="5d", interval="1d", 
+        df = yf.download(ticker, period="5d", interval="1d", auto_adjust=True, 
                         progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
             close = df['Close'].squeeze()
@@ -100,15 +100,15 @@ def get_tomorrow_preview(nifty, banknifty, news, portfolio_results, trades_data)
 
     # Check for near-target trades
     for t in trades_data:
-        if t['current'] >= t['target'] * 0.93:
+        if t.get('close', t.get('current', 0)) >= t['target'] * 0.93:
             preview.append({
                 "type": "TARGET_NEAR", "priority": "HIGH",
-                "msg": f"🎯 {t['symbol']} is {((t['target']-t['current'])/t['current']*100):.1f}% from target. Set price alert at ₹{t['target']:.2f}"
+                "msg": f"🎯 {t['symbol']} is {((t['target']-t.get('close',t.get('current',0)))/t.get('close',t.get('current',1))*100):.1f}% from target. Set price alert at ₹{t['target']:.2f}"
             })
-        if t['current'] <= t['sl'] * 1.04:
+        if t.get('close', t.get('current', 0)) <= t['sl'] * 1.04:
             preview.append({
                 "type": "SL_NEAR", "priority": "HIGH",
-                "msg": f"⚠️ {t['symbol']} is {((t['current']-t['sl'])/t['sl']*100):.1f}% above stop loss. Watch closely tomorrow."
+                "msg": f"⚠️ {t['symbol']} is {((t.get('close',t.get('current',0))-t['sl'])/t['sl']*100):.1f}% above stop loss. Watch closely tomorrow."
             })
 
     # Check RSI warnings in portfolio

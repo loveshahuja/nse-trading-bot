@@ -17,10 +17,10 @@ def get_open_trades(sheet):
 def get_current_price_live(symbol):
     try:
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
-            curr = float(df['Close'].iloc[-1])
-            prev = float(df['Close'].iloc[-2])
+            curr = float(df['Close'].squeeze().iloc[-1])
+            prev = float(df['Close'].squeeze().iloc[-2])
             rsi = float(ta.momentum.RSIIndicator(df['Close'].squeeze()).rsi().iloc[-1])
             open_p = float(df['Open'].iloc[-1])
             high = float(df['High'].iloc[-1])
@@ -81,7 +81,7 @@ def build_tg_midday(today, now, global_data, fii_dii, news, nifty, banknifty,
         pnl_e = "🟢" if t['pnl'] >= 0 else "🔴"
         trades_txt += f"""
 {pnl_e} <b>{t['symbol']}</b> (Day {t['days']})
-Entry ₹{t['entry']} → Now ₹{t['current']} ({t['day_chg']:+.1f}% today)
+Entry ₹{t['entry']} → Now ₹{t.get('close', t.get('current', 0))} ({t['day_chg']:+.1f}% today)
 P&L: ₹{t['pnl']:+,.0f} ({t['pnl_pct']:+.1f}%) | RSI: {t['rsi']}
 {t['action']}: {t['reason'][:80]}
 """
@@ -164,11 +164,11 @@ def build_email_midday(today, now, global_data, fii_dii, news, nifty, banknifty,
         dc = "#27ae60" if t['day_chg'] >= 0 else "#e74c3c"
         ac = {"red":"#e74c3c","green":"#27ae60","orange":"#f39c12","blue":"#3498db"}.get(t['color'],"#333")
         total_pnl += t['pnl']; total_invested += t['entry']*t['qty']
-        total_current += t['current']*t['qty']
-        progress_pct = min(100, max(0, ((t['current']-t['entry'])/(t['target']-t['entry'])*100))) if t['target'] != t['entry'] else 0
+        total_current += t.get('close', t.get('current', 0))*t['qty']
+        progress_pct = min(100, max(0, ((t.get('close', t.get('current', 0))-t['entry'])/(t['target']-t['entry'])*100))) if t['target'] != t['entry'] else 0
         t_rows += f"""<tr>
             <td><b>{t['symbol']}</b><br><span style='font-size:11px;color:#888'>Day {t['days']}</span></td>
-            <td>₹{t['entry']}</td><td>₹{t['current']}</td>
+            <td>₹{t['entry']}</td><td>₹{t.get('close', t.get('current', 0))}</td>
             <td style='color:{dc}'>{t['day_chg']:+.2f}%</td>
             <td style='color:{pc}'><b>₹{t['pnl']:+,.0f}</b></td>
             <td style='color:{pc}'><b>{t['pnl_pct']:+.1f}%</b></td>
@@ -349,7 +349,7 @@ def run():
     total_pnl_pct = 0
     if trades_data:
         invested = sum(t['entry']*t['qty'] for t in trades_data)
-        curr_val = sum(t['current']*t['qty'] for t in trades_data)
+        curr_val = sum(t.get('close', t.get('current', 0))*t['qty'] for t in trades_data)
         total_pnl_pct = ((curr_val-invested)/invested*100) if invested > 0 else 0
     mood = nifty['mood'] if nifty else 'N/A'
     send_email(

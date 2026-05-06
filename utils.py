@@ -307,11 +307,11 @@ def get_global_markets():
                     "US_DOW":"^DJI","US_NASDAQ":"^IXIC","US_SP500":"^GSPC",
                     "CRUDE_OIL":"CL=F","GOLD":"GC=F","USD_INR":"INR=X","VIX":"^VIX"
                 }
-                df = yf.download(yf_map.get(name, sym), period="5d",
+                df = yf.download(yf_map.get(name, sym), period="5d", auto_adjust=True,
                                 interval="1d", progress=False)
                 if not df.empty and len(df) >= 2:
-                    curr = float(df['Close'].iloc[-1])
-                    prev = float(df['Close'].iloc[-2])
+                    curr = float(df['Close'].squeeze().iloc[-1])
+                    prev = float(df['Close'].squeeze().iloc[-2])
                     chg = ((curr - prev) / prev) * 100
                     result[name] = {"price": round(curr,2), "change_pct": round(chg,2)}
             except:
@@ -455,7 +455,7 @@ def get_news(portfolio_stocks=None):
 # ── Index Analysis ────────────────────────────────────────────
 def analyze_index(ticker, name):
     try:
-        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
+        df = yf.download(ticker, period="3mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 30:
             return None
         close = df['Close'].squeeze()
@@ -517,7 +517,7 @@ def get_sector_momentum():
         bull = 0; total = 0
         for sym in stocks:
             try:
-                df = yf.download(sym, period="3mo", interval="1d", progress=False)
+                df = yf.download(sym, period="3mo", interval="1d", progress=False, auto_adjust=True)
                 if df.empty or len(df) < 20:
                     continue
                 close = df['Close'].squeeze()
@@ -548,7 +548,7 @@ def get_sector_momentum():
 # ── Stock Signal Calculator ───────────────────────────────────
 def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
     try:
-        df = yf.download(symbol, period="6mo", interval="1d", progress=False)
+        df = yf.download(symbol, period="6mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 30:
             return None
         close = df['Close'].squeeze()

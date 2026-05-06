@@ -204,9 +204,9 @@ def score_force5_multitimeframe(symbol):
     try:
         ticker = symbol if ".NS" in symbol else symbol+".NS"
         # Weekly data
-        df_weekly = yf.download(ticker, period="1y", interval="1wk", progress=False)
+        df_weekly = yf.download(ticker, period="1y", interval="1wk", progress=False, auto_adjust=True)
         # Monthly data
-        df_monthly = yf.download(ticker, period="2y", interval="1mo", progress=False)
+        df_monthly = yf.download(ticker, period="2y", interval="1mo", progress=False, auto_adjust=True)
 
         # Weekly trend
         if not df_weekly.empty and len(df_weekly) >= 20:
@@ -284,9 +284,9 @@ def score_force6_fundamental(symbol, news, fii_dii):
 
         # Price vs 52-week performance
         try:
-            df = yf.download(ticker, period="1y", interval="1d", progress=False)
+            df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
             if not df.empty:
-                curr = float(df['Close'].iloc[-1])
+                curr = float(df['Close'].squeeze().iloc[-1])
                 high_52w = float(df['High'].max())
                 low_52w = float(df['Low'].min())
                 pos_in_range = ((curr - low_52w) / (high_52w - low_52w)) * 100 if high_52w != low_52w else 50
@@ -309,7 +309,7 @@ def calculate_confluence_score(symbol, sector_signals, nifty, banknifty, news, f
     """Calculate complete 6-force confluence score"""
     try:
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
+        df = yf.download(ticker, period="6mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 30:
             return None
         close = df['Close'].squeeze()
