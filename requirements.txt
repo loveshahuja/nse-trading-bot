@@ -1,11 +1,9 @@
 flask
-yfinance
-ta
-pandas
 requests
 gspread
 google-auth
-gunicorn
+yfinance
+ta
+pandas
 pytz
 apscheduler
-feedparser
