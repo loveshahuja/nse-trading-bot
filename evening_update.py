@@ -32,8 +32,7 @@ def get_closing_price(symbol):
     try:
         import math
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="5d", interval="1d", auto_adjust=True, 
-                        progress=False, auto_adjust=True)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
             close = df['Close'].squeeze()
             curr = float(close.iloc[-1])
