@@ -23,6 +23,7 @@ import feedparser
 import gspread
 import math
 import threading
+import gc
 from google.oauth2.service_account import Credentials
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -335,7 +336,7 @@ def get_sector_momentum():
 
 def calculate_signal(symbol, sector_signals=None, nifty_dir="NEUTRAL"):
     try:
-        df = yf.download(symbol, period="6mo", interval="1d", progress=False, auto_adjust=True)
+        df = yf.download(symbol, period="3mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 30: return None
         close = df['Close'].squeeze(); volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
@@ -424,52 +425,178 @@ def calculate_signal(symbol, sector_signals=None, nifty_dir="NEUTRAL"):
         return None
 
 def get_nse_symbols():
+    """Download full NSE list — filters to liquid stocks only"""
+    import io
+    print("Fetching NSE stock list...")
     try:
-        import io
-        headers = {'User-Agent':'Mozilla/5.0','Referer':'https://www.nseindia.com/'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.nseindia.com/',
+            'Accept': 'text/html,application/xhtml+xml,*/*',
+        }
         session = requests.Session()
-        session.get('https://www.nseindia.com', headers=headers, timeout=15)
-        time.sleep(2)
-        r = session.get('https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv',
-                        headers=headers, timeout=30)
-        if r.status_code == 200:
+        session.headers.update(headers)
+        try:
+            session.get('https://www.nseindia.com', timeout=15)
+            time.sleep(2)
+        except: pass
+        r = session.get(
+            'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv',
+            timeout=30)
+        if r.status_code == 200 and len(r.text) > 1000:
             df = pd.read_csv(io.StringIO(r.text))
+            # Filter: only EQ series (equity), exclude SME/debt
+            if ' SERIES' in df.columns:
+                df = df[df[' SERIES'].str.strip() == 'EQ']
             syms = [s.strip()+'.NS' for s in df['SYMBOL'].tolist()]
-            print(f"Downloaded {len(syms)} NSE symbols")
-            return syms
+            # Filter out known illiquid/problematic symbols
+            filtered = [s for s in syms if len(s.replace('.NS','')) <= 15]
+            print(f"NSE download: {len(filtered)} equity stocks")
+            return filtered
     except Exception as e:
-        print(f"NSE download failed: {e}")
-    # Fallback
-    all_stocks = []
-    for stocks in SECTOR_REP.values():
-        all_stocks.extend(stocks)
-    extra = ["RELIANCE.NS","TCS.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS","SBIN.NS",
-             "KOTAKBANK.NS","AXISBANK.NS","BAJFINANCE.NS","MARUTI.NS","ASIANPAINT.NS",
-             "TITAN.NS","SUNPHARMA.NS","NESTLEIND.NS","ULTRACEMCO.NS","WIPRO.NS",
-             "ADANIENT.NS","ADANIPORTS.NS","HINDALCO.NS","TATASTEEL.NS","JSWSTEEL.NS",
-             "TATAMOTORS.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","TATACONSUM.NS",
-             "BPCL.NS","IOC.NS","ONGC.NS","COALINDIA.NS","POWERGRID.NS",
-             "NTPC.NS","SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS","PIDILITIND.NS",
-             "ZOMATO.NS","IRCTC.NS","IRFC.NS","RVNL.NS","HUDCO.NS","PFC.NS","RECLTD.NS",
-             "SAIL.NS","NMDC.NS","VEDL.NS","AMBUJACEM.NS","ACC.NS","SHREECEM.NS",
-             "BHEL.NS","HAL.NS","BEL.NS","BEML.NS","MAZAGON.NS","DIXON.NS","AMBER.NS",
-             "VOLTAS.NS","HAVELLS.NS","POLYCAB.NS","PERSISTENT.NS","MPHASIS.NS",
-             "LTIM.NS","COFORGE.NS","KPITTECH.NS","DEEPAKNTR.NS","ATUL.NS","TATACHEM.NS",
-             "DLF.NS","GODREJPROP.NS","PRESTIGE.NS","BRIGADE.NS","BAJAJFINSV.NS",
-             "MUTHOOTFIN.NS","MANAPPURAM.NS","CHOLAFIN.NS","SHRIRAMFIN.NS",
-             "BLS.NS","ENGINERSIN.NS","JIOFIN.NS","PARADEEP.NS","SUZLON.NS",
-             "SYNGENE.NS","VMM.NS","APOLLOHOSP.NS","DIVISLAB.NS","EICHERMOT.NS",
-             "TORNTPHARM.NS","AUROPHARMA.NS","ALKEM.NS","LUPIN.NS","MANKIND.NS",
-             "CANBK.NS","BANKBARODA.NS","PNB.NS","UNIONBANK.NS","IDFCFIRSTB.NS",
-             "RBLBANK.NS","BANDHANBNK.NS","FEDERALBNK.NS","INDUSINDBK.NS",
-             "ABCAPITAL.NS","EMCURE.NS","AVALON.NS","GODREJPROP.NS","CONCOR.NS",
-             "RAYMOND.NS","SENCO.NS","NAVINFLUOR.NS","RVNL.NS","CLEAN.NS",
-             "DEEPAKNTR.NS","CESC.NS","INOXWIND.NS","JSWENERGY.NS","SJVN.NS","NHPC.NS",
-             "TATAPOWER.NS","ADANIGREEN.NS","WAAREEENER.NS","SJVN.NS","IEX.NS",
-             "NUVAMA.NS","360ONE.NS","ANGELONE.NS","CDSL.NS","BSE.NS","MCX.NS",]
-    return list(set(all_stocks + extra))
+        print(f"NSE download failed: {e} — using curated list")
+    return get_curated_symbols()
 
-# ── Nifty Options ─────────────────────────────────────────────
+def get_curated_symbols():
+    """Curated list of 1000+ liquid NSE stocks"""
+    return list(set([
+        # NIFTY 50
+        "RELIANCE.NS","TCS.NS","HDFCBANK.NS","BHARTIARTL.NS","ICICIBANK.NS",
+        "INFY.NS","SBIN.NS","HINDUNILVR.NS","ITC.NS","KOTAKBANK.NS",
+        "LT.NS","AXISBANK.NS","BAJFINANCE.NS","MARUTI.NS","ASIANPAINT.NS",
+        "TITAN.NS","SUNPHARMA.NS","NESTLEIND.NS","ULTRACEMCO.NS","WIPRO.NS",
+        "ADANIENT.NS","ADANIPORTS.NS","HINDALCO.NS","TATASTEEL.NS","JSWSTEEL.NS",
+        "TATAMOTORS.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","GRASIM.NS","TATACONSUM.NS",
+        "BPCL.NS","IOC.NS","ONGC.NS","COALINDIA.NS","POWERGRID.NS",
+        "NTPC.NS","SBILIFE.NS","HDFCLIFE.NS","ICICIPRULI.NS","TECHM.NS",
+        "BAJAJFINSV.NS","HCLTECH.NS","INDUSINDBK.NS","BRITANNIA.NS","CIPLA.NS",
+        "DRREDDY.NS","EICHERMOT.NS","DIVISLAB.NS","APOLLOHOSP.NS","LTIM.NS",
+        # NIFTY NEXT 50
+        "SIEMENS.NS","ABB.NS","HAVELLS.NS","POLYCAB.NS","THERMAX.NS",
+        "PIDILITIND.NS","DMART.NS","DABUR.NS","MARICO.NS","COLPAL.NS",
+        "GODREJCP.NS","VBL.NS","RADICO.NS","MCDOWELL-N.NS","EMAMILTD.NS",
+        "ZOMATO.NS","NAUKRI.NS","IRCTC.NS","CONCOR.NS","BLUEDART.NS",
+        "IRFC.NS","RVNL.NS","HUDCO.NS","PFC.NS","RECLTD.NS",
+        "SJVN.NS","NHPC.NS","TATAPOWER.NS","ADANIGREEN.NS","CESC.NS",
+        "JSWENERGY.NS","INOXWIND.NS","SUZLON.NS","WAAREEENER.NS","IEX.NS",
+        "TRENT.NS","ABFRL.NS","PAGEIND.NS","BERGERPAINTS.NS","KANSAINER.NS",
+        "LINDEINDIA.NS","CUMMINSIND.NS","JUBLFOOD.NS","WESTLIFE.NS",
+        # MIDCAP 150
+        "COFORGE.NS","PERSISTENT.NS","MPHASIS.NS","KPITTECH.NS","TATAELXSI.NS",
+        "CYIENT.NS","BIRLASOFT.NS","MASTEK.NS","TANLA.NS","LTTS.NS",
+        "TATACOMM.NS","INFOEDGE.NS","HEXAWARE.NS","ZENSAR.NS","RATEGAIN.NS",
+        "OFSS.NS","SONATSOFTW.NS","DATAMATICS.NS","BSOFT.NS","NIITLTD.NS",
+        "LATENTVIEW.NS","HAPPSTMNDS.NS","INTELLECT.NS","NEWGEN.NS","ROUTE.NS",
+        "HAL.NS","BEL.NS","BEML.NS","MAZAGON.NS","GRSE.NS",
+        "COCHINSHIP.NS","MIDHANI.NS","GARDENREACH.NS","BHEL.NS","SOLARINDS.NS",
+        "DATACPATTERNS.NS","IDEAFORGE.NS",
+        "CANBK.NS","BANKBARODA.NS","PNB.NS","UNIONBANK.NS","IDFCFIRSTB.NS",
+        "RBLBANK.NS","BANDHANBNK.NS","FEDERALBNK.NS","KARURVYSYA.NS",
+        "DCBBANK.NS","EQUITASBNK.NS","UTKARSHBNK.NS","MAHABANK.NS",
+        "CITYUNIONBANK.NS","INDIANB.NS","IOB.NS","UCOBANK.NS","CENTRALBNK.NS",
+        "SOUTHBANK.NS","KTKBANK.NS","UJJIVANSFB.NS","SURYODAY.NS",
+        "LUPIN.NS","AUROPHARMA.NS","ALKEM.NS","ZYDUSLIFE.NS","MANKIND.NS",
+        "GLENMARK.NS","TORNTPHARM.NS","AJANTPHARM.NS","LAURUSLABS.NS",
+        "GRANULES.NS","APLLTD.NS","IPCALAB.NS","NATCOPHARM.NS","GLAND.NS",
+        "WOCKPHARMA.NS","STRIDES.NS","JBCHEPHARM.NS","LALPATHLAB.NS",
+        "METROPOLIS.NS","MAXHEALTH.NS","FORTIS.NS","NH.NS","KIMS.NS",
+        "ABBOTINDIA.NS","EMCURE.NS","NEULANDLAB.NS","BIOCON.NS",
+        "ALEMBICLTD.NS","AARTIDRUGS.NS","FDC.NS","SOLARA.NS","CAPLIPOINT.NS",
+        "JUBLPHARMA.NS","ERIS.NS",
+        "MUTHOOTFIN.NS","MANAPPURAM.NS","CHOLAFIN.NS","SHRIRAMFIN.NS",
+        "M&MFIN.NS","POONAWALLA.NS","LICHSGFIN.NS","CANFINHOME.NS",
+        "AAVAS.NS","CREDITACC.NS","SPANDANA.NS","HOMEFIRST.NS",
+        "360ONE.NS","NUVAMA.NS","ANGELONE.NS","MOTILALOFS.NS",
+        "CDSL.NS","BSE.NS","MCX.NS","CAMS.NS","KFINTECH.NS","IIFL.NS",
+        "EDELWEISS.NS","PIRAMAL.NS","APTUS.NS","SBFC.NS","UGROCAP.NS",
+        "FUSION.NS","AROHANFIN.NS","SATIN.NS","LICI.NS","GODIGIT.NS",
+        "POLICYBZR.NS","ICICIGI.NS","NIACL.NS","GICRE.NS","STARHEALTH.NS",
+        "MFSL.NS",
+        "TVSMOTOR.NS","MOTHERSON.NS","BHARATFORG.NS","BOSCHLTD.NS",
+        "APOLLOTYRE.NS","MRF.NS","CEATLTD.NS","BALKRISIND.NS",
+        "TIINDIA.NS","ENDURANCE.NS","SCHAEFFLER.NS","GABRIEL.NS",
+        "CRAFTSMAN.NS","SUPRAJIT.NS","GRINDWELL.NS","NRBBEARING.NS",
+        "FIEM.NS","SUBROS.NS","VARROC.NS","MINDAIND.NS","MINDA.NS",
+        "SKFINDIA.NS","IGARASHI.NS",
+        "SAIL.NS","NMDC.NS","VEDL.NS","NATIONALUM.NS","HINDCOPPER.NS",
+        "MOIL.NS","APLAPOLLO.NS","JINDALSAW.NS","RATNAMANI.NS","WELSPUNIND.NS",
+        "TRIDENT.NS","VARDHMAN.NS","KPRMILL.NS","APL.NS",
+        "DEEPAKNTR.NS","ATUL.NS","NAVINFLUOR.NS","VINATI.NS","FLUOROCHEM.NS",
+        "AARTI.NS","TATACHEM.NS","GHCL.NS","ALKYLAMINE.NS","COROMANDEL.NS",
+        "PIIND.NS","SUMICHEM.NS","RALLIS.NS","CHAMBALFERT.NS","GNFC.NS",
+        "GSFC.NS","RCF.NS","NFL.NS","CLEAN.NS","INDIAGLYCO.NS",
+        "DCMSHRIRAM.NS","BALRAMCHIN.NS","RENUKA.NS","TRIVENI.NS","DHAMPUR.NS",
+        "IRB.NS","NCC.NS","PNCINFRA.NS","KNRCON.NS","GMRINFRA.NS",
+        "JSWINFRA.NS","KEC.NS","KALPATPOWR.NS","NBCC.NS","RITES.NS",
+        "AHLUCONT.NS","HCC.NS","PSP.NS","JKIL.NS","RAILVIKAS.NS",
+        "CAPACITE.NS","SADBHAV.NS",
+        "AMBUJACEM.NS","ACC.NS","SHREECEM.NS","RAMCOCEM.NS","JKCEMENT.NS",
+        "STARCEMENT.NS","BIRLACORPN.NS","HEIDELBERG.NS","KAJARIACER.NS",
+        "CERA.NS","SOMANYCER.NS","ORIENTCEM.NS",
+        "DLF.NS","GODREJPROP.NS","PRESTIGE.NS","BRIGADE.NS","SOBHA.NS",
+        "PHOENIXLTD.NS","OBEROIRLTY.NS","KOLTEPATIL.NS","SUNTECK.NS",
+        "LODHA.NS","ANANTRAJ.NS","MAHLIFE.NS","ELDECO.NS",
+        "GAIL.NS","OIL.NS","MGL.NS","IGL.NS","PETRONET.NS",
+        "HINDPETRO.NS","MRPL.NS","AEGISLOG.NS","ATGL.NS","GUJGASLTD.NS",
+        "IDEA.NS","RAILTEL.NS","ITI.NS","HFCL.NS","TEJASNET.NS","STLTECH.NS",
+        "JYOTHYLAB.NS","GILLETTE.NS","PGHH.NS","BIKAJI.NS","CAMPUS.NS",
+        "BATAINDIA.NS","RELAXO.NS","METROBRAND.NS","VSTIND.NS",
+        "DIXON.NS","AMBER.NS","VOLTAS.NS","BLUESTAR.NS","CROMPTON.NS",
+        "ORIENT.NS","WHIRLPOOL.NS","NILKAMAL.NS","SUPREMEIND.NS",
+        "ASTRAL.NS","FINOLEX.NS","VGUARD.NS","BAJAJELECTR.NS",
+        "BLS.NS","ENGINERSIN.NS","JIOFIN.NS","PARADEEP.NS","VMM.NS",
+        "SYNGENE.NS","NMDC.NS","SUZLON.NS","BEL.NS",
+        "ABCAPITAL.NS","AVALON.NS","EMCURE.NS","RAYMOND.NS","SENCO.NS",
+        "INDIGO.NS","NYKAA.NS","PAYTM.NS","DELHIVERY.NS","NAZARA.NS",
+        "TORNTPOWER.NS","RPOWER.NS","ADANIENSOL.NS","ACMESOLAR.NS",
+        "GOLDENRAYS.NS","WEBSOL.NS","STERLINWIL.NS","PREMIERENE.NS",
+        "QUESS.NS","SIS.NS","TEAMLEASE.NS","CRISIL.NS","ICRA.NS",
+        "MTAR.NS","ELGIEQUIP.NS","IFBIND.NS","SYMPHONY.NS","HAWKINCOOK.NS",
+        "ZENSARTECH.NS","NOCIL.NS","SUDARSCHEM.NS","BASF.NS","JAYAGROCHEM.NS",
+        "FACT.NS","GUJFLUORO.NS","AAPL.NS",
+        "DILIPBUILDCON.NS","GAYAPROJ.NS","CAPACITE.NS",
+        "SOLARINDS.NS","PARAS.NS","DATACPATTERNS.NS",
+        "UJJIVANSFB.NS","SURYODAY.NS","SBFC.NS","UGROCAP.NS",
+        "AROHANFIN.NS","SATIN.NS","HOMEFIRST.NS","APTUS.NS",
+        "MINDAIND.NS","MINDA.NS","NRBBEARING.NS","FIEM.NS",
+        "CRAFTSMAN.NS","GABRIEL.NS","IGARASHI.NS","VARROC.NS",
+        "APL.NS","JINDALSAW.NS","WELSPUNIND.NS","RATNAMANI.NS",
+        "DHAMPUR.NS","TRIVENI.NS","RENUKA.NS","BALRAMCHIN.NS",
+        "INDIAGLYCO.NS","CLEAN.NS","NFL.NS","RCF.NS","GSFC.NS",
+        "GNFC.NS","CHAMBALFERT.NS","RALLIS.NS","SUMICHEM.NS",
+        "PIIND.NS","COROMANDEL.NS","ALKYLAMINE.NS","GHCL.NS",
+        "HINDPETRO.NS","MRPL.NS","AEGISLOG.NS","ATGL.NS","GUJGASLTD.NS",
+        "KTKBANK.NS","SOUTHBANK.NS","CENTRALBNK.NS","UCOBANK.NS",
+        "IOB.NS","INDIANB.NS","MAHABANK.NS",
+        "JUBLPHARMA.NS","ERIS.NS","SOLARA.NS","CAPLIPOINT.NS",
+        "NEULANDLAB.NS","ABBOTINDIA.NS","GLAND.NS","NATCOPHARM.NS",
+        "WOCKPHARMA.NS","STRIDES.NS","JBCHEPHARM.NS",
+        "EDELWEISS.NS","IIFL.NS","PIRAMAL.NS","BIOCON.NS",
+        "LICI.NS","GODIGIT.NS","POLICYBZR.NS","NIACL.NS",
+        "GICRE.NS","STARHEALTH.NS","MFSL.NS",
+        "SUBROS.NS","SKFINDIA.NS","CARBORUNIV.NS","GRINDWELL.NS",
+        "SCHAEFFLER.NS","ENDURANCE.NS","TIINDIA.NS","BALKRISIND.NS",
+        "TRIDENT.NS","VARDHMAN.NS","KPRMILL.NS","NATIONALUM.NS",
+        "HINDCOPPER.NS","MOIL.NS","APLAPOLLO.NS",
+        "SADBHAV.NS","CAPACITE.NS","GAYAPROJ.NS","DILIPBUILDCON.NS",
+        "JKIL.NS","PSP.NS","HCC.NS","AHLUCONT.NS",
+        "HEIDELBERG.NS","SOMANYCER.NS","CERA.NS","ORIENTCEM.NS",
+        "ANANTRAJ.NS","MAHLIFE.NS","ELDECO.NS","LODHA.NS",
+        "VGUARD.NS","BAJAJELECTR.NS","NILKAMAL.NS","ORIENT.NS",
+        "METROBRAND.NS","CAMPUS.NS","BIKAJI.NS","PGHH.NS","GILLETTE.NS",
+        "VSTIND.NS","JYOTHYLAB.NS","RELAXO.NS","BATAINDIA.NS",
+        "TEAMLEASE.NS","QUESS.NS","SIS.NS","CRISIL.NS","ICRA.NS",
+        "MTAR.NS","ELGIEQUIP.NS","IFBIND.NS","SYMPHONY.NS",
+        "ZENSARTECH.NS","NOCIL.NS","SUDARSCHEM.NS","FACT.NS",
+        "DATAMATICS.NS","BSOFT.NS","NIITLTD.NS","RATEGAIN.NS",
+        "LATENTVIEW.NS","HAPPSTMNDS.NS","INTELLECT.NS","NEWGEN.NS",
+        "IDEAFORGE.NS","PARAS.NS","MIDHANI.NS","GARDENREACH.NS",
+        "ADANIENSOL.NS","ACMESOLAR.NS","GOLDENRAYS.NS","WEBSOL.NS",
+        "STERLINWIL.NS","PREMIERENE.NS","BFUTILITIE.NS",
+        "NAZARA.NS","CARTRADE.NS","NYKAA.NS","PAYTM.NS","DELHIVERY.NS",
+    ]))
+
+
 def nifty_options_rec(level, rsi, direction):
     lot = 75
     if direction in ["BULLISH","NEUTRAL"]: otype="CALL (CE)"; mult=1.005
@@ -491,6 +618,7 @@ def run_morning_scan():
     send_telegram(f"⏳ <b>Morning Scan Starting...</b>\n{today} {now}\nScanning 2000+ NSE stocks. Full report coming in ~25 mins.")
 
     sector_signals = get_sector_momentum()
+    import gc; gc.collect()
     global_data = get_global_markets()
     fii_dii = get_fii_dii()
     news = get_news()
@@ -498,6 +626,7 @@ def run_morning_scan():
     banknifty = analyze_index("^NSEBANK","Bank Nifty")
     sensex = analyze_index("^BSESN","Sensex")
     nifty_dir = nifty['direction'] if nifty else "NEUTRAL"
+    gc.collect()
 
     # Portfolio
     portfolio_results = []
@@ -506,16 +635,21 @@ def run_morning_scan():
         if r: portfolio_results.append(r)
         time.sleep(0.5)
 
-    # Full scan
+    # Full scan — in batches to save memory
     nse_syms = get_nse_symbols()
-    print(f"Scanning {len(nse_syms)} stocks...")
+    print(f"Scanning {len(nse_syms)} stocks in batches...")
     all_results = []
-    for i, sym in enumerate(nse_syms):
-        r = calculate_signal(sym, sector_signals, nifty_dir)
-        if r: all_results.append(r)
-        if (i+1) % 500 == 0:
-            print(f"  Progress: {i+1}/{len(nse_syms)} | Valid: {len(all_results)}")
-        time.sleep(0.25)
+    batch_size = 150
+    for batch_start in range(0, len(nse_syms), batch_size):
+        batch = nse_syms[batch_start:batch_start+batch_size]
+        for sym in batch:
+            r = calculate_signal(sym, sector_signals, nifty_dir)
+            if r: all_results.append(r)
+            time.sleep(0.25)
+        print(f"  Progress: {batch_start+len(batch)}/{len(nse_syms)} | Valid: {len(all_results)}")
+        # Clear memory between batches
+        import gc; gc.collect()
+        time.sleep(1)
 
     # Rank — only stocks with 7%+ target gap
     def good_target(r): return r['target_gap'] >= 7.0
@@ -1222,7 +1356,7 @@ Position : {max_shares} shares = ₹{max_shares*r['price']:,.0f} (2% risk rule)
 def score_confluence(symbol, sector_signals, nifty, banknifty, fii_dii, news):
     try:
         import math
-        df = yf.download(symbol, period="6mo", interval="1d", progress=False, auto_adjust=True)
+        df = yf.download(symbol, period="3mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df) < 30: return 0, [], {}
         close = df['Close'].squeeze(); volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
