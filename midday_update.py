@@ -328,7 +328,7 @@ def run():
     for sector, mood in sector_signals.items():
         if "BULLISH" in mood:
             sector_stocks.extend(SECTOR_MAP.get(sector, [])[:5])
-    scan_list = list(set(MY_PORTFOLIO + sector_stocks))[:80]
+    scan_list = list(set(get_portfolio_symbols() + sector_stocks))[:80]
     new_signals = []
     for sym in scan_list:
         r = calculate_signal(sym, sector_signals, nifty_dir)

@@ -35,11 +35,31 @@ TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 GOOGLE_SHEET_ID  = os.environ.get('GOOGLE_SHEET_ID')
 GOOGLE_CREDS     = os.environ.get('GOOGLE_CREDENTIALS')
 
-# ── Portfolio ─────────────────────────────────────────────────
-MY_PORTFOLIO = [
-    "BLS.NS","ENGINERSIN.NS","HDFCBANK.NS","JIOFIN.NS",
-    "PARADEEP.NS","SUZLON.NS","SYNGENE.NS","VMM.NS","BEL.NS"
-]
+# ── Portfolio — dynamically loaded from Google Sheets ─────────
+# No hardcoded stocks — always reflects your actual holdings
+def get_portfolio_symbols():
+    """Read portfolio from Google Sheets Open Trades tab"""
+    try:
+        sheet = setup_sheets()
+        if not sheet:
+            return []
+        ws = sheet.worksheet("Open Trades")
+        records = ws.get_all_records()
+        symbols = []
+        for r in records:
+            stock = r.get('Stock','').strip()
+            if stock:
+                # Handle ETFs and stocks
+                sym = stock + '.NS'
+                symbols.append(sym)
+        print(f"Portfolio from Sheets: {[s.replace('.NS','') for s in symbols]}")
+        return symbols
+    except Exception as e:
+        print(f"Portfolio fetch error: {e}")
+        return []
+
+# Keep MY_PORTFOLIO as empty — filled dynamically at runtime
+MY_PORTFOLIO = []
 
 # ── F&O eligible stocks with lot sizes ───────────────────────
 FON_LOT_SIZES = {

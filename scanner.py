@@ -375,7 +375,7 @@ def run():
     # Step 4: Portfolio
     print("Scanning portfolio...")
     portfolio_results = []
-    for sym in MY_PORTFOLIO:
+    for sym in get_portfolio_symbols():
         r = calculate_signal(sym, sector_signals, nifty_dir)
         if r:
             portfolio_results.append(r)
