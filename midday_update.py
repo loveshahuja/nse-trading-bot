@@ -152,7 +152,7 @@ def build_email_midday(today, now, global_data, fii_dii, news, nifty, banknifty,
     n_rows = ""
     for n in news:
         sc = "#27ae60" if "POSITIVE" in n['sentiment'] else "#e74c3c" if "NEGATIVE" in n['sentiment'] else "#f39c12"
-        n_rows += f"<tr><td><b>{n['stock']}</b></td><td>{n['headline']}</td><td style='color:{sc}'>{n['sentiment']}</td><td style='font-size:12px;color:#555'>{n['impact']}</td></tr>"
+        n_rows += f"<tr><td><b>{n['stock']}</b></td><td>{n['headline']}</td><td style='color:{sc}'>{n['sentiment']}</td><td style='font-size:12px;color:#555'>{n.get('impact', 'Watch for direction')}</td></tr>"
     if not n_rows:
         n_rows = "<tr><td colspan='4'>No major news since morning</td></tr>"
 
