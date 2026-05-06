@@ -17,7 +17,7 @@ def get_open_trades(sheet):
 def get_current_price_live(symbol):
     try:
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+        df = yf.download(ticker, period="1mo", interval="1d", progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
             curr = float(df['Close'].squeeze().iloc[-1])
             prev = float(df['Close'].squeeze().iloc[-2])
