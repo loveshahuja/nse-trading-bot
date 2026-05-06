@@ -16,20 +16,28 @@ def get_open_trades(sheet):
 
 def get_current_price_live(symbol):
     try:
+        import math
         ticker = symbol if ".NS" in symbol else symbol+".NS"
         df = yf.download(ticker, period="1mo", interval="1d", progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
-            curr = float(df['Close'].squeeze().iloc[-1])
-            prev = float(df['Close'].squeeze().iloc[-2])
-            rsi = float(ta.momentum.RSIIndicator(df['Close'].squeeze()).rsi().iloc[-1])
-            open_p = float(df['Open'].iloc[-1])
-            high = float(df['High'].iloc[-1])
-            low = float(df['Low'].iloc[-1])
-            return {"current": curr, "prev": prev, "rsi": round(rsi,1),
-                    "open": open_p, "high": high, "low": low,
+            close = df['Close'].squeeze()
+            curr = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            if math.isnan(curr) or math.isnan(prev):
+                print(f"  NaN price for {symbol} — skipping")
+                return None
+            rsi_val = ta.momentum.RSIIndicator(close).rsi().iloc[-1]
+            rsi = round(float(rsi_val), 1) if not math.isnan(float(rsi_val)) else 50.0
+            open_p = float(df['Open'].squeeze().iloc[-1])
+            high = float(df['High'].squeeze().iloc[-1])
+            low = float(df['Low'].squeeze().iloc[-1])
+            print(f"  ✅ {symbol}: ₹{curr:.2f} RSI:{rsi}")
+            return {"current": round(curr,2), "prev": round(prev,2), 
+                    "rsi": rsi, "open": round(open_p,2), 
+                    "high": round(high,2), "low": round(low,2),
                     "day_chg": round(((curr-prev)/prev)*100,2)}
-    except:
-        pass
+    except Exception as e:
+        print(f"  ❌ Price error for {symbol}: {e}")
     return None
 
 def get_exit_signal(trade, price_data, nifty_direction):
