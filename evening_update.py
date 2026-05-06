@@ -30,20 +30,25 @@ def update_days_held(sheet, trades):
 
 def get_closing_price(symbol):
     try:
+        import math
         ticker = symbol if ".NS" in symbol else symbol+".NS"
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        df = yf.download(ticker, period="5d", interval="1d", 
+                        progress=False, auto_adjust=True)
         if not df.empty and len(df) >= 2:
-            curr = float(df['Close'].iloc[-1])
-            prev = float(df['Close'].iloc[-2])
-            rsi = float(ta.momentum.RSIIndicator(df['Close'].squeeze()).rsi().iloc[-1])
-            high = float(df['High'].iloc[-1])
-            low = float(df['Low'].iloc[-1])
-            vol = float(df['Volume'].iloc[-1])
-            return {"close": curr, "prev_close": prev, "rsi": round(rsi,1),
-                    "high": high, "low": low, "vol": vol,
+            close = df['Close'].squeeze()
+            curr = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            if math.isnan(curr) or math.isnan(prev): return None
+            rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
+            high = float(df['High'].squeeze().iloc[-1])
+            low = float(df['Low'].squeeze().iloc[-1])
+            vol = float(df['Volume'].squeeze().iloc[-1])
+            return {"close": round(curr,2), "prev_close": round(prev,2), 
+                    "rsi": round(rsi,1), "high": round(high,2), 
+                    "low": round(low,2), "vol": vol,
                     "day_chg": round(((curr-prev)/prev)*100,2)}
-    except:
-        pass
+    except Exception as e:
+        print(f"Price fetch error for {symbol}: {e}")
     return None
 
 def smart_exit_recommendation(trade, price_data, nifty_direction, news_sentiment):
