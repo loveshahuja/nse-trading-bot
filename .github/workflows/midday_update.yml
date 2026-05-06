@@ -1,7 +1,5 @@
 name: Midday Market Update
 on:
-  schedule:
-    - cron: '30 6 * * 1-5'  # 12:00 PM IST
   workflow_dispatch:
 jobs:
   midday:
