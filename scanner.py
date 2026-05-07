@@ -350,6 +350,126 @@ def save_scan_to_sheets(sheet, top20, portfolio_results, today):
     except Exception as e:
         print(f"Sheets save error: {e}")
 
+
+# ============================================================
+# ADDITIONS 2, 3, 5, 6 — WATCHLIST + SIZING + SIGNAL LOG + DIVERSITY
+# ============================================================
+
+def get_position_size(price, sl_price):
+    """Addition 3 — Position sizing based on ₹25K-50K capital"""
+    sl_dist = abs(price - sl_price)
+    if sl_dist <= 0: return 0, 0
+    # Use ₹37,500 midpoint
+    shares = int(37500 / price)
+    while shares * price > 50000 and shares > 0:
+        shares -= 1
+    if shares * price < 25000 and price < 25000:
+        shares = int(25000 / price)
+    actual_capital = round(shares * price)
+    return shares, actual_capital
+
+def build_watchlist_message(top3, today):
+    """Addition 2 — Top 3 watchlist with exact trade plan"""
+    msg = f"""📋 <b>TODAY'S WATCHLIST — {today}</b>
+⏰ Enter between 9:15–9:30 AM only
+⚠️ Only enter if Nifty opens GREEN
+⚠️ Check /portfolio — max 3-5 trades at a time
+
+"""
+    medals = ['🥇', '🥈', '🥉']
+    for i, r in enumerate(top3, 1):
+        shares, capital = get_position_size(r['entry'], r['sl'])
+        t1 = round(r['entry'] * 1.08, 2)
+        t2 = round(r['entry'] * 1.15, 2)
+        sl_pct = round(((r['entry'] - r['sl']) / r['entry']) * 100, 1)
+        opt_txt = ""
+        if r.get('is_fno') and r.get('lot', 0) > 0:
+            strike = round(r['entry'] * 1.03 / 50) * 50
+            prem = round(r['entry'] * 0.025, 1)
+            cap = round(prem * r['lot'])
+            opt_txt = f"\n   🎯 CE Option: {r['symbol']} {strike} CE | Prem ~₹{prem} | Capital ~₹{cap:,}"
+        msg += f"""{medals[i-1]} <b>{r['symbol']}</b> | {r['efficiency']}/5 ⭐ | RSI:{r['rsi']} | Sector:{r['sector']}
+   Buy      : ₹{r['entry']} ({shares} shares = ₹{capital:,})
+   Stop Loss: ₹{r['sl']} (-{sl_pct}%)
+   Target 1 : ₹{t1} (+8%) — Sell 50% here
+   Target 2 : ₹{t2} (+15%) — Exit remaining
+   Hold for : 5-10 trading days{opt_txt}
+
+"""
+    msg += "⚠️ These are technical signals. Verify price in Zerodha before entering."
+    return msg
+
+def log_signal_to_sheets(signals, scan_type="MORNING"):
+    """Addition 5 — Log all signals to Signal Log tab for backtesting"""
+    try:
+        sheet = setup_sheets()
+        if not sheet: return
+        try:
+            ws = sheet.worksheet("Signal Log")
+        except:
+            ws = sheet.add_worksheet(title="Signal Log", rows=5000, cols=20)
+            ws.append_row([
+                "Date", "Time", "Stock", "Signal Type", "Entry Price",
+                "Target 1 (8%)", "Target 2 (15%)", "Stop Loss", "RSI",
+                "Sector", "Efficiency", "Scan Type", "Outcome",
+                "Exit Price", "Return %", "Days Held", "Notes"
+            ])
+        today = datetime.now(IST).strftime('%d %b %Y')
+        now_t = datetime.now(IST).strftime('%I:%M %p')
+        rows = []
+        for r in signals:
+            t1 = round(r['entry'] * 1.08, 2)
+            t2 = round(r['entry'] * 1.15, 2)
+            rows.append([
+                today, now_t, r['symbol'], r['signal'],
+                r['entry'], t1, t2, r['sl'],
+                r['rsi'], r['sector'], f"{r['efficiency']}/5",
+                scan_type, "OPEN", "", "", "", ""
+            ])
+        for row in rows:
+            ws.append_row(row)
+        print(f"✅ Logged {len(rows)} signals to Signal Log")
+    except Exception as e:
+        print(f"Signal log error: {e}")
+
+def diversify_top20(candidates, sector_signals):
+    """Addition 6 — Dynamic sector diversity in Top 20"""
+    from collections import defaultdict
+    # Slot allocation based on sector momentum
+    sector_slots = {}
+    for s, m in sector_signals.items():
+        if "BULLISH" in m: sector_slots[s] = 4
+        elif "NEUTRAL" in m: sector_slots[s] = 2
+        else: sector_slots[s] = 1
+    sector_slots["GENERAL"] = 5  # always get slots
+
+    # Group by sector, sorted by efficiency
+    by_sector = defaultdict(list)
+    for r in candidates:
+        by_sector[r['sector']].append(r)
+
+    # Fill slots — bullish sectors first
+    final = []
+    seen = set()
+    for sector in sorted(sector_slots, key=lambda s: -sector_slots[s]):
+        slots = sector_slots[sector]
+        added = 0
+        for r in by_sector.get(sector, []):
+            if added >= slots: break
+            if r['symbol'] not in seen:
+                final.append(r)
+                seen.add(r['symbol'])
+                added += 1
+
+    # Fill remaining slots with best remaining
+    for r in candidates:
+        if len(final) >= 20: break
+        if r['symbol'] not in seen:
+            final.append(r)
+            seen.add(r['symbol'])
+
+    return final[:20]
+
 def run():
     today = datetime.now(IST).strftime('%d %b %Y')
     now = datetime.now(IST).strftime('%I:%M %p IST')
@@ -402,7 +522,8 @@ def run():
                     key=lambda x: (x['efficiency'], x['buy_score']), reverse=True)
     buys = sorted([r for r in all_results if r['signal']=="BUY" and has_good_target(r)],
                   key=lambda x: (x['efficiency'], x['buy_score']), reverse=True)
-    top20 = (strong + buys)[:20]
+    # Addition 6 — Sector-diverse Top 20
+    top20 = diversify_top20(strong + buys, sector_signals)
     total = len(all_results)
     print(f"\nScan complete! Valid: {total} | Strong Buy: {len(strong)} | Buy: {len(buys)}")
 
@@ -416,6 +537,14 @@ def run():
 
     tg = build_tg_message(today, global_data, fii_dii, news, nifty, banknifty,
                           sensex, sector_signals, portfolio_results, top20, total)
+    # Addition 5 — Log signals for backtesting
+    log_signal_to_sheets(top20, "MORNING")
+
+    # Addition 2 — Send watchlist with top 3 + trade plan
+    if top20:
+        watchlist = build_watchlist_message(top20[:3], today)
+        send_telegram(watchlist)
+
     send_telegram(tg)
 
     email_body = build_email(today, now, global_data, fii_dii, news, nifty,

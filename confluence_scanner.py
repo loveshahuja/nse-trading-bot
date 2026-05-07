@@ -599,6 +599,41 @@ def build_email_confluence(results, today, now, scan_count):
     </p></body></html>"""
     return html
 
+
+def log_confluence_to_sheets(signals):
+    """Addition 5 — Log confluence signals to Signal Log tab"""
+    try:
+        sheet = setup_sheets()
+        if not sheet: return
+        try:
+            ws = sheet.worksheet("Signal Log")
+        except:
+            ws = sheet.add_worksheet(title="Signal Log", rows=5000, cols=20)
+            ws.append_row([
+                "Date", "Time", "Stock", "Signal Type", "Entry Price",
+                "Target 1 (8%)", "Target 2 (15%)", "Stop Loss", "RSI",
+                "Sector", "Efficiency", "Scan Type", "Outcome",
+                "Exit Price", "Return %", "Days Held", "Notes"
+            ])
+        today = datetime.now(IST).strftime('%d %b %Y')
+        now_t = datetime.now(IST).strftime('%I:%M %p')
+        for r in signals:
+            t1 = round(r['entry'] * 1.08, 2)
+            t2 = round(r['entry'] * 1.15, 2)
+            score = r.get('total_score', r.get('conf_score', 0))
+            ws.append_row([
+                today, now_t, r['symbol'],
+                f"CONFLUENCE {score}/22",
+                r['entry'], t1, t2, r['sl'],
+                r['rsi'], r['sector'],
+                f"{r['efficiency']}/5",
+                "CONFLUENCE", "OPEN", "", "", "", ""
+            ])
+        print(f"✅ Logged {len(signals)} confluence signals to Signal Log")
+    except Exception as e:
+        print(f"Confluence signal log error: {e}")
+
+
 def run():
     today = datetime.now(IST).strftime('%d %b %Y')
     now = datetime.now(IST).strftime('%I:%M %p IST')
@@ -689,6 +724,9 @@ Strong Buy (⭐): {len([r for r in top_results if STRONG_BUY_SCORE<=r['total_sco
     subject_prefix = "🔥 ULTRA BUY" if ultra_count > 0 else "⭐ STRONG BUY"
     top_symbol = top_results[0]['symbol'] if top_results else "N/A"
     top_score = top_results[0]['total_score'] if top_results else 0
+
+    # Addition 5 — Log confluence signals for backtesting
+    log_confluence_to_sheets(top_results)
 
     send_email(
         subject=f"{subject_prefix} Confluence Alert {today} | {top_symbol} {top_score}/22 | {len(top_results)} signals",

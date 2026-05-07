@@ -431,6 +431,112 @@ def manual_confluence():
     ok=trigger_github_workflow("confluence_scan.yml")
     return jsonify({"status":"triggered" if ok else "failed","time":ist_str()})
 
+
+# ============================================================
+# ADDITION 1 — PRICE MONITOR
+# Checks open trades every 15 mins during market hours
+# Sends instant Telegram alerts for SL/Target hits
+# One alert per stock per day — no spam
+# ============================================================
+_alerted_today = {}  # {stock_event: date} to avoid spam
+
+def check_price_alerts():
+    """Monitor open trades — fires every 15 mins during market hours"""
+    try:
+        now = now_ist()
+        today = now.strftime('%Y-%m-%d')
+        # Only Mon-Fri during market hours 9:15 AM - 3:30 PM
+        if now.weekday() >= 5: return
+        if now.hour < 9 or now.hour >= 16: return
+        if now.hour == 9 and now.minute < 15: return
+
+        sheet = setup_sheets()
+        if not sheet: return
+        ws = sheet.worksheet("Open Trades")
+        trades = ws.get_all_records()
+        if not trades:
+            return
+        print(f"Price monitor: checking {len(trades)} trades at {now.strftime('%I:%M %p IST')}")
+
+        for t in trades:
+            sym = t.get('Stock', '').strip()
+            if not sym: continue
+            try:
+                entry = float(t.get('Entry Price', 0) or 0)
+                qty = int(t.get('Qty', 0) or 0)
+                target = float(t.get('Target', 0) or entry * 1.10)
+                sl = float(t.get('Stop Loss', 0) or entry * 0.97)
+                if not entry or not qty: continue
+
+                df = yf.download(sym + '.NS', period='1d', interval='5m',
+                                 progress=False, auto_adjust=True)
+                if df.empty: continue
+                curr = float(df['Close'].squeeze().iloc[-1])
+                if math.isnan(curr): continue
+
+                pnl = (curr - entry) * qty
+                pnl_pct = ((curr - entry) / entry) * 100
+                t1 = round(entry + (target - entry) * 0.5, 2)
+
+                # Alert keys — one per day per event
+                sl_key = f"{sym}_SL_{today}"
+                t1_key = f"{sym}_T1_{today}"
+                t2_key = f"{sym}_T2_{today}"
+
+                # 🛑 STOP LOSS HIT
+                if curr <= sl and sl_key not in _alerted_today:
+                    _alerted_today[sl_key] = today
+                    send_telegram(f"""🛑 <b>STOP LOSS HIT — {sym}</b>
+⏰ {now.strftime('%I:%M %p IST')}
+
+Current  : ₹{curr:.2f}
+SL       : ₹{sl:.2f}
+Entry    : ₹{entry:.2f}
+Loss     : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
+
+<b>EXIT IMMEDIATELY in Zerodha</b>
+Then use /sell {sym} {curr:.2f} to update records""")
+                    print(f"🛑 SL alert: {sym}")
+
+                # 🎯 TARGET 1 HIT (halfway)
+                elif curr >= t1 and curr < target and t1_key not in _alerted_today:
+                    _alerted_today[t1_key] = today
+                    send_telegram(f"""🎯 <b>TARGET 1 HIT — {sym}</b>
+⏰ {now.strftime('%I:%M %p IST')}
+
+Current  : ₹{curr:.2f}
+Target 1 : ₹{t1:.2f} ✅
+Target 2 : ₹{target:.2f} (hold remaining)
+Entry    : ₹{entry:.2f}
+Profit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
+
+<b>Action: SELL {qty//2} shares now (50% exit)</b>
+Hold remaining {qty - qty//2} shares for ₹{target:.2f}
+Move SL up to entry ₹{entry:.2f} (protect breakeven)""")
+                    print(f"🎯 T1 alert: {sym}")
+
+                # 🎯🎯 FULL TARGET HIT
+                elif curr >= target and t2_key not in _alerted_today:
+                    _alerted_today[t2_key] = today
+                    send_telegram(f"""🎯🎯 <b>FULL TARGET HIT — {sym}</b>
+⏰ {now.strftime('%I:%M %p IST')}
+
+Current  : ₹{curr:.2f}
+Target   : ₹{target:.2f} ✅✅
+Entry    : ₹{entry:.2f}
+Profit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
+
+<b>Action: EXIT ALL remaining shares NOW</b>
+Then use /sell {sym} {curr:.2f} to update records""")
+                    print(f"🎯🎯 T2 alert: {sym}")
+
+            except Exception as e:
+                print(f"Price check error {sym}: {e}")
+            time.sleep(0.5)
+
+    except Exception as e:
+        print(f"Price monitor error: {e}")
+
 # ── Scheduler ─────────────────────────────────────────────────
 def start_scheduler():
     scheduler = BackgroundScheduler(timezone=IST)
@@ -449,8 +555,16 @@ def start_scheduler():
         hour=13, minute=0, day_of_week='mon-fri', timezone=IST))
     scheduler.add_job(trigger_confluence, CronTrigger(
         hour=14, minute=30, day_of_week='mon-fri', timezone=IST))
+    # Price monitor — every 15 mins during market hours
+    for _h in range(9, 16):
+        for _m in [0, 15, 30, 45]:
+            if _h == 9 and _m < 15: continue
+            if _h == 15 and _m > 30: continue
+            scheduler.add_job(check_price_alerts, CronTrigger(
+                hour=_h, minute=_m, day_of_week='mon-fri', timezone=IST))
+
     scheduler.start()
-    print("✅ Scheduler started — triggers GitHub Actions at right times")
+    print("✅ Scheduler started — GitHub Actions triggers + Price monitor (every 15 mins)")
     print("   8:00 AM → morning_scan.yml")
     print("   12:00 PM → midday_update.yml")
     print("   8:00 PM → evening_update.yml")
