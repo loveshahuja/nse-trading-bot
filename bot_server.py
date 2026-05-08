@@ -133,9 +133,12 @@ def analyse_stock(sym):
         n = now_ist()
         if 1 <= n.hour <= 6:
             return f"⏰ Market data unavailable at {ist_str('%I:%M %p IST')}. Try after 6 AM IST."
-        df = yf.download(sym+'.NS', period="3mo", interval="1d", progress=False, auto_adjust=True)
+        df = yf.download(sym+'.NS', period="12mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<30:
             return f"❌ No data for {sym}. Check symbol name."
+        # Standardize columns
+        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple) else str(c).capitalize()
+                      for c in df.columns]
         close=df['Close'].squeeze(); volume=df['Volume'].squeeze()
         curr=float(close.iloc[-1]); prev=float(close.iloc[-2])
         if math.isnan(curr) or math.isnan(prev):
@@ -176,7 +179,9 @@ def analyse_stock(sym):
         if is_fno and "BUY" in signal and rsi<72 and lot>0:
             strike=round(curr*1.03/50)*50; prem=round(curr*0.028,1); cap=round(prem*lot)
             opt_txt=f"\n🎯 <b>OPTIONS:</b> {sym} {strike} CE | Prem ~₹{prem} | Lot {lot} | Capital ~₹{cap:,}\n⚠️ Verify in Zerodha Options Chain"
-        return f"""🔍 <b>ANALYSIS — {sym}</b>
+
+        # Base analysis (unchanged from v5.0)
+        base_result = f"""🔍 <b>ANALYSIS — {sym}</b>
 ⏰ {ist_str()} (15 min delayed)
 
 💰 ₹{curr:.2f} ({day_chg:+.2f}% today)
@@ -196,6 +201,18 @@ Position : {max_shares} shares = ₹{max_shares*curr:,.0f} (2% risk on ₹2L)
 {"F&O ✅ Lot: "+str(lot) if is_fno else "Not F&O"}{opt_txt}
 
 ⚠️ Verify price in Zerodha before trading"""
+
+        # Add SMC analysis (new in v6.0)
+        smc_section = ""
+        try:
+            from smc_engine import calculate_smc_score, format_smc_section
+            smc = calculate_smc_score(df, sym)
+            smc_section = format_smc_section(smc)
+        except Exception as smc_err:
+            print(f"SMC error for {sym}: {smc_err}")
+
+        return base_result + smc_section
+
     except Exception as e:
         return f"❌ Error: {str(e)[:100]}"
 
@@ -205,7 +222,7 @@ def process_command(text, chat_id):
     parts = text.strip().split(); cmd=parts[0].lower(); args=parts[1:]
 
     if cmd in ['/start','/help']:
-        return """🤖 <b>NSE Trading Bot v5.0</b>
+        return """🤖 <b>NSE Trading Bot v6.0 — SMC Edition</b>
 24/7 Active | Instant Response
 
 📈 <b>RECORD TRADES</b>
@@ -217,21 +234,27 @@ def process_command(text, chat_id):
 📊 <b>VIEW</b>
 /portfolio — open trades
 
-🔍 <b>ANALYSIS</b>
-/analyse STOCK
+🔍 <b>ANALYSIS (SMC Enhanced)</b>
+/analyse STOCK — Technical + SMC full analysis
 /compare STOCK1 STOCK2
 /market — live indices
 
 🔄 <b>MANUAL TRIGGERS</b>
-/run_morning — trigger morning scan now
+/run_morning — trigger morning SMC scan
 /run_midday — trigger midday now
 /run_evening — trigger evening now
+/run_confluence — trigger confluence scan
 
 ⏰ <b>AUTO REPORTS</b>
-8:00 AM — Morning scan
+8:00 AM — Morning scan (SMC enhanced)
 12:00 PM — Midday update
 8:00 PM — Evening update
-Confluence — 4x daily"""
+9:15, 11:00, 13:00, 14:30 — Confluence (7-force)
+
+🧠 <b>SMC IN /analyse:</b>
+Market Stage | Order Blocks | FVG
+BOS/CHoCH | Liquidity Sweeps
+Premium/Discount | Inducement | Killzone"""
 
     elif cmd == '/ping':
         return f"🟢 Bot alive!\n⏰ {ist_str()}"
@@ -403,7 +426,7 @@ def webhook():
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status":"alive","time":ist_str(),"version":"5.0"})
+    return jsonify({"status":"alive","time":ist_str(),"version":"6.0-SMC"})
 
 @app.route('/', methods=['GET'])
 def home():
@@ -572,7 +595,7 @@ def start_scheduler():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"NSE Bot v5.0 starting on port {port} — {ist_str()}")
+    print(f"NSE Bot v6.0 SMC starting on port {port} — {ist_str()}")
     start_scheduler()
-    send_telegram(f"🚀 <b>NSE Bot v5.0 Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Scheduler triggers GitHub Actions\n✅ Morning: 8 AM | Midday: 12 PM | Evening: 8 PM\n\nSend /help for commands")
+    send_telegram(f"🚀 <b>NSE Bot v6.0 SMC Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Scheduler triggers GitHub Actions\n✅ Morning: 8 AM | Midday: 12 PM | Evening: 8 PM\n✅ SMC Engine: Market Stage, Order Blocks, FVG, BOS/CHoCH\n\nSend /help for commands")
     app.run(host='0.0.0.0', port=port)
