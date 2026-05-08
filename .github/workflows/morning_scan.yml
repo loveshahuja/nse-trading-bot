@@ -10,7 +10,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    - run: pip install yfinance ta pandas requests gspread google-auth feedparser pytz
+    - run: pip install yfinance ta pandas requests gspread google-auth feedparser pytz numpy
     - run: python scanner.py
       env:
         GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
