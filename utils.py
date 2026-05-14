@@ -804,3 +804,562 @@ def table_start(headers):
 
 def table_end():
     return "</table>"
+# ============================================================
+# PRICE ACTION ENGINE v1.0 — Add to bottom of utils.py
+# ============================================================
+# Shared functions used by ALL scan files:
+#   scanner.py, confluence_scanner.py,
+#   midday_update.py, evening_update.py
+#
+# HOW TO USE IN EACH FILE:
+#   from utils import *        (already done in all files)
+#   result = pa_analyse(symbol, sector_signals, nifty_cond)
+#   if result: use result["signal"], result["t1"], etc.
+# ============================================================
+
+def pa_sr_zones(df, curr):
+    """
+    Find support/resistance zones with touch count.
+    3+ touches = MAJOR | 2 = MODERATE | 1 = MINOR
+    """
+    out = {
+        "supports": [], "resistances": [],
+        "nearest_sup": None, "nearest_res": None,
+        "second_res": None,
+        "sup_touches": 0, "res_touches": 0
+    }
+    try:
+        import numpy as np
+        data  = df.tail(120).copy().reset_index(drop=True)
+        highs = data["High"].squeeze().values.astype(float)
+        lows  = data["Low"].squeeze().values.astype(float)
+        tol   = 0.013
+
+        sh, sl = [], []
+        for i in range(3, len(data) - 3):
+            if highs[i] == max(highs[max(0,i-3):i+4]):
+                sh.append(highs[i])
+            if lows[i] == min(lows[max(0,i-3):i+4]):
+                sl.append(lows[i])
+
+        def cluster(levels, ztype):
+            if not levels: return []
+            levels = sorted(levels)
+            zones, used = [], [False]*len(levels)
+            for i in range(len(levels)):
+                if used[i]: continue
+                grp = [levels[i]]
+                for j in range(i+1, len(levels)):
+                    if not used[j] and abs(levels[j]-levels[i])/levels[i] < tol:
+                        grp.append(levels[j]); used[j] = True
+                used[i] = True
+                price   = round(float(sum(grp)/len(grp)), 2)
+                touches = len(grp)
+                strength = "MAJOR" if touches >= 3 else "MODERATE" if touches == 2 else "MINOR"
+                zones.append({
+                    "type": ztype, "price": price, "touches": touches,
+                    "strength": strength,
+                    "dist_pct": round(abs(price - curr) / curr * 100, 2)
+                })
+            return zones
+
+        sups = sorted([z for z in cluster(sl,"support")    if z["price"] < curr],
+                      key=lambda x: x["price"], reverse=True)
+        ress = sorted([z for z in cluster(sh,"resistance") if z["price"] > curr],
+                      key=lambda x: x["price"])
+
+        out["supports"]    = sups
+        out["resistances"] = ress
+        out["nearest_sup"] = sups[0] if sups else None
+        out["nearest_res"] = ress[0] if ress else None
+        out["second_res"]  = ress[1] if len(ress) > 1 else None
+        out["sup_touches"] = sups[0]["touches"] if sups else 0
+        out["res_touches"] = ress[0]["touches"] if ress else 0
+    except Exception as e:
+        print(f"PA SR error: {e}")
+    return out
+
+
+def pa_setup_type(df, sr, curr, ema20, ema50):
+    """
+    Detect trade setup type:
+    REVERSAL    = at 2-3x tested support
+    BREAKOUT    = broke above 2-3x tested resistance
+    PULLBACK    = dip in uptrend to support
+    CONTINUATION= trending, no clear S/R touch
+    NONE        = no setup
+    """
+    trade_type = "NONE"
+    bonus      = 0
+    notes      = []
+    try:
+        closes = df["Close"].squeeze().values.astype(float)
+        sup    = sr.get("nearest_sup")
+        res    = sr.get("nearest_res")
+        sup_p  = sup["price"] if sup else curr * 0.95
+        res_p  = res["price"] if res else curr * 1.10
+        sup_t  = sr.get("sup_touches", 0)
+        res_t  = sr.get("res_touches", 0)
+        d_sup  = (curr - sup_p) / curr * 100
+        d_res  = (res_p - curr) / curr * 100
+        last5_down = float(closes[-1]) < float(closes[-5]) if len(closes) >= 5 else False
+
+        if d_sup <= 3 and sup_t >= 2:
+            trade_type = "REVERSAL"
+            bonus += 15
+            lbl = "MAJOR" if sup_t >= 3 else "MODERATE"
+            notes.append(f"🔄 REVERSAL — support ₹{sup_p} ({sup_t}x = {lbl})")
+            if sup_t >= 3: bonus += 6; notes.append("✅ 3+ touch support = high probability bounce")
+            if last5_down: bonus += 4; notes.append("✅ Pulled back to support — clean entry")
+
+        elif d_res <= 2 and res_t >= 2:
+            broke = any(float(closes[-i]) > res_p * 0.998 for i in range(1, 4))
+            if broke:
+                trade_type = "BREAKOUT"
+                bonus += 18
+                notes.append(f"🚀 BREAKOUT — above ₹{res_p} ({res_t}x tested resistance)")
+                notes.append("✅ Old resistance = new support (momentum trade)")
+                if res_t >= 3: bonus += 5; notes.append("✅ 3x resistance broken = very strong")
+
+        elif ema20 > ema50 and last5_down and d_sup <= 5:
+            trade_type = "PULLBACK"
+            bonus += 12
+            notes.append(f"📉 PULLBACK — dip in uptrend to support ₹{sup_p}")
+            notes.append("✅ EMA 20>50 trend intact")
+
+        elif ema20 > ema50 and d_res >= 8:
+            trade_type = "CONTINUATION"
+            bonus += 5
+            notes.append("➡️ CONTINUATION — trending, room to resistance")
+
+        else:
+            bonus -= 5
+            notes.append("❌ No clean setup")
+
+        # BOS check
+        try:
+            from smc_engine import detect_bos_choch
+            bos = detect_bos_choch(df)
+            if bos.get("bos") and "Bullish" in bos["bos"]["direction"]:
+                bonus += 7; notes.append(f"✅ BOS: {bos['bos']['message']}")
+            if bos.get("choch") and "Bearish" in bos["choch"]["direction"]:
+                bonus -= 10; notes.append(f"🔴 CHoCH: {bos['choch']['message']}")
+        except:
+            pass
+
+    except Exception as e:
+        print(f"PA setup error: {e}")
+    return trade_type, bonus, notes
+
+
+def pa_demand_zone(df, curr):
+    """Check if price is inside or near a demand zone."""
+    score = 0; notes = []; at_demand = False
+    try:
+        from smc_engine import find_supply_demand_zones
+        zones  = find_supply_demand_zones(df, lookback=120)
+        demand = [z for z in zones if z["type"] == "demand"]
+        supply = [z for z in zones if z["type"] == "supply"]
+        for z in demand:
+            if z["zone_low"] * 0.99 <= curr <= z["zone_high"] * 1.02:
+                at_demand = True; score += 12
+                notes.append(f"✅ Inside DEMAND ZONE ₹{z['zone_low']}–₹{z['zone_high']} (vol {z['strength']:.1f}x avg)")
+                break
+            elif curr > z["zone_high"] and (curr - z["zone_high"]) / curr * 100 <= 4:
+                score += 6
+                notes.append(f"✅ Above demand zone ₹{z['zone_low']}–₹{z['zone_high']} — support below")
+                break
+        for z in supply:
+            if z["zone_low"] > curr and (z["zone_low"] - curr) / curr * 100 <= 7:
+                score -= 4
+                notes.append(f"⚠️ Supply zone ₹{z['zone_low']}–₹{z['zone_high']} within 7% — limits upside")
+                break
+    except Exception as e:
+        print(f"PA demand error: {e}")
+    return score, notes, at_demand
+
+
+def pa_candle_at_zone(df, at_support, at_demand):
+    """Candle patterns only meaningful AT key zones."""
+    score = 0; notes = []
+    try:
+        from smc_engine import detect_candle_patterns
+        patterns  = detect_candle_patterns(df)
+        at_zone   = at_support or at_demand
+        for p in patterns:
+            if p["bias"] == "Bullish":
+                mult = 1.5 if at_zone else 0.5
+                pts  = int({"Very Strong":12,"Strong":8,"Moderate":5}.get(p["strength"],3) * mult)
+                score += pts
+                loc = "at key zone 🎯" if at_zone else "not at key zone"
+                notes.append(f"{'✅' if at_zone else '⚠️'} {p['pattern']} ({p['strength']}) — {loc}")
+            elif p["bias"] == "Bearish":
+                score -= 6
+                notes.append(f"🔴 {p['pattern']} — bearish candle")
+    except Exception as e:
+        print(f"PA candle error: {e}")
+    return score, notes
+
+
+def pa_dynamic_targets(curr, sr, trade_type):
+    """
+    Calculate SL and targets from actual S/R levels.
+    Each stock gets its own target — not fixed %.
+    """
+    try:
+        sup  = sr.get("nearest_sup")
+        ress = sr.get("resistances", [])
+        sec  = sr.get("second_res")
+
+        # SL
+        if sup:
+            sl = round(sup["price"] * 0.988, 2)
+            sl_note = f"Below {sup['strength']} support ₹{sup['price']} ({sup['touches']}x)"
+        else:
+            sl = round(curr * 0.95, 2)
+            sl_note = "5% hard stop"
+        sl_pct = round((curr - sl) / curr * 100, 1)
+        if sl_pct > 7:
+            sl = round(curr * 0.93, 2); sl_pct = 7.0; sl_note = "7% hard cap"
+
+        # T1
+        t1 = t1_pct = t1_note = None
+        if ress:
+            r1 = ress[0]
+            t1 = round(r1["price"] * 0.985, 2)
+            t1_pct = round((t1 - curr) / curr * 100, 1)
+            t1_note = f"Below {r1['strength']} res ₹{r1['price']} ({r1['touches']}x)"
+            if t1_pct < 4 and len(ress) > 1:
+                r1 = ress[1]; t1 = round(r1["price"]*0.985,2)
+                t1_pct = round((t1-curr)/curr*100,1)
+                t1_note = f"2nd resistance ₹{r1['price']} ({r1['touches']}x)"
+        if not t1 or t1_pct < 4:
+            t1 = round(curr*1.08,2); t1_pct = 8.0; t1_note = "8% default"
+
+        # T2
+        if sec:
+            t2 = round(sec["price"]*0.985,2)
+            t2_pct = round((t2-curr)/curr*100,1)
+            t2_note = f"2nd resistance ₹{sec['price']} ({sec['touches']}x)"
+        else:
+            t2 = round(curr*1.15,2); t2_pct = 15.0; t2_note = "15% trail"
+        if t2_pct < t1_pct + 3:
+            t2 = round(curr*1.15,2); t2_pct = 15.0; t2_note = "15% trail"
+
+        # T3 — breakouts only
+        t3 = t3_pct = t3_note = None
+        if trade_type == "BREAKOUT":
+            if len(ress) > 2:
+                r3 = ress[2]; t3 = round(r3["price"]*0.985,2)
+                t3_pct = round((t3-curr)/curr*100,1)
+                t3_note = f"3rd resistance ₹{r3['price']}"
+            else:
+                t3 = round(curr*1.25,2); t3_pct = 25.0; t3_note = "25% breakout ext"
+
+        rr   = round((t1-curr)/(curr-sl),1) if (curr-sl)>0 else 0
+        hold = "10-20 days" if t1_pct>=15 else "5-10 days" if t1_pct>=8 else "3-5 days"
+
+        return {
+            "sl":sl,"sl_pct":sl_pct,"sl_note":sl_note,
+            "t1":t1,"t1_pct":t1_pct,"t1_note":t1_note,
+            "t2":t2,"t2_pct":t2_pct,"t2_note":t2_note,
+            "t3":t3,"t3_pct":t3_pct,"t3_note":t3_note,
+            "rr":rr,"hold":hold
+        }
+    except Exception as e:
+        print(f"PA targets error: {e}")
+        return {
+            "sl":round(curr*0.95,2),"sl_pct":5.0,"sl_note":"default",
+            "t1":round(curr*1.08,2),"t1_pct":8.0,"t1_note":"default",
+            "t2":round(curr*1.15,2),"t2_pct":15.0,"t2_note":"default",
+            "t3":None,"t3_pct":None,"t3_note":None,
+            "rr":1.5,"hold":"5-7 days"
+        }
+
+
+def pa_analyse(symbol, sector_signals, nifty_cond,
+               min_price=50, max_price=3000,
+               min_vol=150000, max_rsi=68, min_score=60):
+    """
+    MASTER FUNCTION — call this from any scan file.
+    Returns a rich dict or None if stock doesn't qualify.
+
+    Usage:
+        r = pa_analyse("SUZLON.NS", sector_signals, "BULLISH")
+        if r:
+            send_telegram(pa_format_alert(r))
+
+    Score breakdown (max ~100):
+        S/R position       : 0-25
+        Setup type         : 0-25
+        Demand zone        : 0-12
+        Indicators         : 0-30
+        Candle at zone     : 0-12
+        Market alignment   : 0-15
+    """
+    try:
+        sym       = symbol if ".NS" in symbol else symbol + ".NS"
+        sym_clean = sym.replace(".NS", "")
+
+        df = yf.download(sym, period="18mo", interval="1d",
+                         auto_adjust=True, progress=False)
+        if df is None or df.empty or len(df) < 80:
+            return None
+
+        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple)
+                      else str(c).capitalize() for c in df.columns]
+
+        close  = df["Close"].squeeze()
+        volume = df["Volume"].squeeze()
+        curr   = float(close.iloc[-1])
+        prev   = float(close.iloc[-2])
+
+        if curr < min_price or curr > max_price: return None
+        avg_vol = float(volume.tail(20).mean())
+        if avg_vol < min_vol: return None
+        rsi_now = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
+        if rsi_now > max_rsi: return None
+
+        ema20  = float(ta.trend.EMAIndicator(close, 20).ema_indicator().iloc[-1])
+        ema50  = float(ta.trend.EMAIndicator(close, 50).ema_indicator().iloc[-1])
+        ema200 = float(ta.trend.EMAIndicator(close, 200).ema_indicator().iloc[-1]) if len(close)>=200 else ema50
+        macd_obj = ta.trend.MACD(close)
+        macd_l   = float(macd_obj.macd().iloc[-1])
+        macd_s   = float(macd_obj.macd_signal().iloc[-1])
+        lat_vol  = float(volume.iloc[-1])
+        vol_ratio = round(lat_vol / avg_vol, 1) if avg_vol > 0 else 1.0
+
+        # Hard veto: clear downtrend with selling pressure
+        if ema20 < ema50 * 0.97 and rsi_now < 38:
+            return None
+
+        score = 0
+        notes = []
+
+        # 1. S/R zones
+        sr  = pa_sr_zones(df, curr)
+        sup = sr.get("nearest_sup")
+        res = sr.get("nearest_res")
+
+        if sup:
+            d = (curr - sup["price"]) / curr * 100
+            if d <= 2:
+                score += 15
+                notes.append(f"✅ AT support ₹{sup['price']} ({sup['touches']}x = {sup['strength']})")
+            elif d <= 5:
+                score += 8
+                notes.append(f"✅ Near support ₹{sup['price']} ({d:.1f}% away, {sup['touches']} touches)")
+            else:
+                score += 3
+                notes.append(f"⚠️ Support ₹{sup['price']} is {d:.1f}% away")
+        if res:
+            d = (res["price"] - curr) / curr * 100
+            if d >= 10:   score += 10; notes.append(f"✅ Resistance ₹{res['price']} {d:.1f}% away")
+            elif d >= 6:  score += 5;  notes.append(f"⚠️ Resistance ₹{res['price']} {d:.1f}% away")
+            else:         score -= 5;  notes.append(f"❌ Resistance ₹{res['price']} only {d:.1f}% away")
+        else:
+            score += 5; notes.append("✅ No overhead resistance")
+
+        # 2. Setup type
+        trade_type, setup_bonus, setup_notes = pa_setup_type(df, sr, curr, ema20, ema50)
+        score += setup_bonus
+        notes.extend(setup_notes)
+        if trade_type == "NONE": return None
+
+        # 3. Demand zone
+        ds_score, ds_notes, at_demand = pa_demand_zone(df, curr)
+        score += ds_score
+        notes.extend(ds_notes)
+
+        # 4. Indicators
+        # RSI
+        if 35 <= rsi_now <= 55:   score += 8;  notes.append(f"✅ RSI {rsi_now:.1f} — ideal entry")
+        elif 55 < rsi_now <= max_rsi: score += 4; notes.append(f"⚠️ RSI {rsi_now:.1f} — elevated")
+        elif rsi_now < 35:        score += 5;  notes.append(f"✅ RSI {rsi_now:.1f} — oversold")
+        else:                     score -= 8;  notes.append(f"❌ RSI {rsi_now:.1f} — overbought")
+
+        # EMA
+        if ema20 > ema50 > ema200:  score += 10; notes.append("✅ EMA 20>50>200 — full bull alignment")
+        elif ema20 > ema50:          score += 5;  notes.append("✅ EMA 20>50 — uptrend")
+        else:                        score -= 6;  notes.append("❌ EMA bearish")
+
+        # MACD
+        if macd_l > macd_s and (macd_l-macd_s) > 0:  score += 7; notes.append("✅ MACD bullish + rising")
+        elif macd_l > macd_s:                          score += 3; notes.append("⚠️ MACD bullish, weakening")
+        else:                                          score -= 4; notes.append("❌ MACD bearish")
+
+        # Volume
+        if vol_ratio >= 2.0:   score += 5; notes.append(f"✅ Volume {vol_ratio}x avg")
+        elif vol_ratio >= 1.3: score += 2; notes.append(f"⚠️ Volume {vol_ratio}x avg")
+
+        # 5. Candle at zone
+        at_sup_zone = sup and (curr - sup["price"]) / curr * 100 <= 3
+        c_score, c_notes = pa_candle_at_zone(df, at_sup_zone, at_demand)
+        score += c_score
+        notes.extend(c_notes)
+
+        # 6. Market + sector
+        sector     = get_stock_sector(sym)
+        sec_mood   = sector_signals.get(sector, "NEUTRAL 🟡")
+        if nifty_cond == "BULLISH":     score += 8; notes.append("✅ Nifty BULLISH")
+        elif nifty_cond == "BEARISH":   score -= 8; notes.append("⚠️ Nifty BEARISH — smaller size")
+        elif nifty_cond == "OVERBOUGHT": score -= 3; notes.append("⚠️ Nifty OVERBOUGHT")
+        else:                           score += 3; notes.append("⚠️ Nifty NEUTRAL")
+
+        if "BULLISH" in sec_mood:   score += 7; notes.append(f"✅ Sector {sector} BULLISH")
+        elif "BEARISH" in sec_mood: score -= 5; notes.append(f"⚠️ Sector {sector} BEARISH")
+        else:                       score += 2; notes.append(f"⚠️ Sector {sector} NEUTRAL")
+
+        score = min(100, max(0, score))
+
+        # Adjust threshold for bearish market
+        threshold = min_score + (10 if nifty_cond == "BEARISH" else 0)
+        if score < threshold: return None
+
+        # Targets
+        lv = pa_dynamic_targets(curr, sr, trade_type)
+        if lv["rr"] < 1.8: return None
+
+        # Stage
+        stage = "Unknown"
+        try:
+            from smc_engine import classify_market_stage
+            stage = classify_market_stage(df)
+        except: pass
+
+        day_chg = round((curr - prev) / prev * 100, 2)
+        lot     = FON_LOT_SIZES.get(sym_clean, 0)
+
+        if score >= 82:   signal_label = "STRONG BUY 🔥"
+        elif score >= 70: signal_label = "BUY ⭐"
+        else:             signal_label = "WATCH 👀"
+
+        return {
+            # Identity
+            "symbol":      sym_clean,
+            "price":       round(curr, 2),
+            "day_chg":     day_chg,
+            "signal":      signal_label,
+            "score":       score,
+            "trade_type":  trade_type,
+            "stage":       stage,
+            # Indicators
+            "rsi":         round(rsi_now, 1),
+            "ema_bull":    ema20 > ema50,
+            "macd_bull":   macd_l > macd_s,
+            "vol_ratio":   vol_ratio,
+            # S/R
+            "support":     sup["price"] if sup else round(curr*0.95,2),
+            "sup_touches": sr.get("sup_touches", 0),
+            "sup_strength":sup["strength"] if sup else "MINOR",
+            "resistance":  res["price"] if res else round(curr*1.10,2),
+            "res_touches": sr.get("res_touches", 0),
+            "at_demand":   at_demand,
+            # Levels
+            "entry":       round(curr * 0.999, 2),
+            "sl":          lv["sl"],   "sl_pct":  lv["sl_pct"],  "sl_note":  lv["sl_note"],
+            "t1":          lv["t1"],   "t1_pct":  lv["t1_pct"],  "t1_note":  lv["t1_note"],
+            "t2":          lv["t2"],   "t2_pct":  lv["t2_pct"],  "t2_note":  lv["t2_note"],
+            "t3":          lv["t3"],   "t3_pct":  lv["t3_pct"],  "t3_note":  lv["t3_note"],
+            "rr":          lv["rr"],   "hold":    lv["hold"],
+            # Meta
+            "sector":      sector,
+            "is_fno":      lot > 0,
+            "lot":         lot,
+            "notes":       notes,
+            # Legacy fields — keeps old code working
+            "efficiency":  min(5, int(score / 20)),
+            "target":      lv["t1"],    # backward compat
+            "sl_legacy":   lv["sl"],    # backward compat
+        }
+
+    except Exception as e:
+        print(f"PA analyse error {symbol}: {e}")
+        return None
+
+
+def pa_format_alert(r, rank=1, nifty_cond="NEUTRAL"):
+    """Format a clean Telegram alert from pa_analyse() result."""
+    try:
+        from smc_engine import get_killzone
+        kz = get_killzone()
+    except:
+        kz = {"zone":"N/A","quality":"N/A","note":""}
+
+    risk = 200000 * 0.02
+    rps  = r["price"] * (r["sl_pct"] / 100)
+    qty  = int(risk / rps) if rps > 0 else 0
+    dep  = round(qty * r["price"])
+    bar  = "█" * int(r["score"]/10) + "░" * (10 - int(r["score"]/10))
+
+    badge = {
+        "REVERSAL":"🔄 REVERSAL AT SUPPORT",
+        "BREAKOUT":"🚀 STRUCTURE BREAKOUT",
+        "PULLBACK":"📉 PULLBACK IN UPTREND",
+        "CONTINUATION":"➡️ TREND CONTINUATION",
+    }.get(r["trade_type"], r["trade_type"])
+
+    nw = "\n⚠️ Nifty BEARISH — use 50% position" if nifty_cond == "BEARISH" else ""
+
+    t_block = (
+        f"Target 1   : ₹{r['t1']} (+{r['t1_pct']}%) → exit 60%\n"
+        f"   📍 {r['t1_note']}\n"
+        f"Target 2   : ₹{r['t2']} (+{r['t2_pct']}%) → exit rest\n"
+        f"   📍 {r['t2_note']}"
+    )
+    if r.get("t3"):
+        t_block += f"\nTarget 3   : ₹{r['t3']} (+{r['t3_pct']}%) — breakout ext\n   📍 {r['t3_note']}"
+
+    return f"""{'🔥' if r['score']>=82 else '⭐'} <b>#{rank} — {r['symbol']}</b>  {badge}
+━━━━━━━━━━━━━━━━━━━━
+Signal     : <b>{r['signal']}</b>
+Score      : {r['score']}/100  [{bar}]
+Stage      : {r['stage']} | {r['sector']}{nw}
+
+💰 ₹{r['price']} ({r['day_chg']:+.2f}%) | RSI {r['rsi']} | Vol {r['vol_ratio']}x
+
+📐 <b>Key Levels</b>
+Support    : ₹{r['support']} — {r['sup_touches']}x tested ({r['sup_strength']})
+Resistance : ₹{r['resistance']} — {r['res_touches']} touches
+{'✅ INSIDE DEMAND ZONE' if r['at_demand'] else ''}
+
+📌 <b>Trade Plan</b>
+Entry      : ₹{r['entry']}
+Stop Loss  : ₹{r['sl']} (-{r['sl_pct']}%)
+   📍 {r['sl_note']}
+{t_block}
+R/R Ratio  : 1:{r['rr']} | Hold: {r['hold']}
+
+📐 <b>Position (2% risk on ₹2L)</b>
+{qty} shares = ₹{dep:,} | Max loss: ₹{round(qty*r['price']*r['sl_pct']/100):,}
+{'F&O ✅ Lot: '+str(r['lot']) if r['is_fno'] else ''}
+
+⏰ {kz['zone']} ({kz['quality']}) — {kz['note']}
+⚠️ Verify in Zerodha | /buy {r['symbol']} {r['entry']} {qty}"""
+
+
+def pa_nifty_condition():
+    """
+    Get current Nifty condition.
+    Returns: ("BULLISH"/"BEARISH"/"NEUTRAL"/"OVERBOUGHT", rsi_float)
+    Call this at the start of every scan.
+    """
+    try:
+        ndf = yf.download("^NSEI", period="30d", interval="1d",
+                           progress=False, auto_adjust=True)
+        if ndf is None or ndf.empty or len(ndf) < 10:
+            return "NEUTRAL", 50.0
+        ndf.columns = [str(c[0]).capitalize() if isinstance(c, tuple)
+                       else str(c).capitalize() for c in ndf.columns]
+        nc   = ndf["Close"].squeeze()
+        rsi  = float(ta.momentum.RSIIndicator(nc).rsi().iloc[-1])
+        e20  = float(ta.trend.EMAIndicator(nc, 20).ema_indicator().iloc[-1])
+        e50  = float(ta.trend.EMAIndicator(nc, 50).ema_indicator().iloc[-1])
+        chg  = float((nc.iloc[-1] - nc.iloc[-2]) / nc.iloc[-2] * 100)
+        if rsi > 72:                             return "OVERBOUGHT", rsi
+        elif e20 > e50 and rsi > 45 and chg > -0.8: return "BULLISH",    rsi
+        elif e20 < e50 or rsi < 35:              return "BEARISH",    rsi
+        else:                                    return "NEUTRAL",    rsi
+    except Exception as e:
+        print(f"Nifty condition error: {e}")
+        return "NEUTRAL", 50.0

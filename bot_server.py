@@ -561,41 +561,30 @@ Then use /sell {sym} {curr:.2f} to update records""")
         print(f"Price monitor error: {e}")
 
 # ── Scheduler ─────────────────────────────────────────────────
+# Scan triggers (morning/midday/evening/confluence/btst) are
+# handled by cron-job.org externally — no duplicates.
+# APScheduler only runs the price monitor (SL/Target alerts).
 def start_scheduler():
     scheduler = BackgroundScheduler(timezone=IST)
-    # Trigger GitHub Actions at the right times
-    scheduler.add_job(trigger_morning_scan, CronTrigger(
-        hour=8, minute=0, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_midday, CronTrigger(
-        hour=12, minute=0, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_evening, CronTrigger(
-        hour=20, minute=0, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_confluence, CronTrigger(
-        hour=9, minute=15, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_confluence, CronTrigger(
-        hour=11, minute=0, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_confluence, CronTrigger(
-        hour=13, minute=0, day_of_week='mon-fri', timezone=IST))
-    scheduler.add_job(trigger_confluence, CronTrigger(
-        hour=14, minute=30, day_of_week='mon-fri', timezone=IST))
-    # Price monitor — every 15 mins during market hours
+    # Price monitor only — every 15 mins during market hours
     for _h in range(9, 16):
         for _m in [0, 15, 30, 45]:
             if _h == 9 and _m < 15: continue
             if _h == 15 and _m > 30: continue
             scheduler.add_job(check_price_alerts, CronTrigger(
                 hour=_h, minute=_m, day_of_week='mon-fri', timezone=IST))
-
     scheduler.start()
-    print("✅ Scheduler started — GitHub Actions triggers + Price monitor (every 15 mins)")
-    print("   8:00 AM → morning_scan.yml")
-    print("   12:00 PM → midday_update.yml")
-    print("   8:00 PM → evening_update.yml")
-    print("   9:15, 11:00, 13:00, 14:30 → confluence_scan.yml")
+    print("✅ Scheduler started — Price monitor every 15 mins (scans via cron-job.org)")
+
+@app.route('/run_btst', methods=['GET'])
+def manual_btst():
+    ok = trigger_github_workflow("btst_scan.yml")
+    if ok: send_telegram(f"⚡ <b>BTST scan triggered</b>\n{ist_str()}\nReport + email in ~15 mins.")
+    return jsonify({"status": "triggered" if ok else "failed", "time": ist_str()})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"NSE Bot v6.0 SMC starting on port {port} — {ist_str()}")
+    print(f"NSE Bot v7.0 starting on port {port} — {ist_str()}")
     start_scheduler()
-    send_telegram(f"🚀 <b>NSE Bot v6.0 SMC Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Scheduler triggers GitHub Actions\n✅ Morning: 8 AM | Midday: 12 PM | Evening: 8 PM\n✅ SMC Engine: Market Stage, Order Blocks, FVG, BOS/CHoCH\n\nSend /help for commands")
+    send_telegram(f"🚀 <b>NSE Bot v7.0 Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Scans triggered by cron-job.org (no duplicates)\n✅ Price monitor every 15 mins\n✅ BTST scanner added (2:45 PM daily)\n\nSend /help for commands")
     app.run(host='0.0.0.0', port=port)
