@@ -26,6 +26,171 @@ import io
 IST = pytz.timezone("Asia/Kolkata")
 warnings.filterwarnings('ignore')
 
+# ============================================================
+# FUND MANAGER FILTERS v5.0 — 8 Quality Gates
+# Conservative investor standards — protect capital first
+# ============================================================
+
+def check_nifty_weekly_trend():
+    """
+    Gate 1: Only trade when Nifty weekly chart is in uptrend.
+    Returns True = safe to buy, False = avoid all buy signals.
+    """
+    try:
+        df = yf.download("^NSEI", period="6mo", interval="1wk",
+                         progress=False, auto_adjust=True)
+        if df is None or df.empty or len(df) < 10:
+            return True  # Default allow if data unavailable
+        close = df['Close'].squeeze()
+        ema10w = float(ta.trend.EMAIndicator(close, 10).ema_indicator().iloc[-1])
+        ema20w = float(ta.trend.EMAIndicator(close, 20).ema_indicator().iloc[-1])
+        curr   = float(close.iloc[-1])
+        # Weekly uptrend = price above 10W EMA and 10W > 20W EMA
+        if curr > ema10w and ema10w > ema20w:
+            print(f"  Nifty Weekly: UPTREND ✅ (Price {curr:.0f} > EMA10W {ema10w:.0f})")
+            return True
+        else:
+            print(f"  Nifty Weekly: DOWNTREND ❌ (Price {curr:.0f}, EMA10W {ema10w:.0f}, EMA20W {ema20w:.0f})")
+            return False
+    except Exception as e:
+        print(f"  Weekly trend check error: {e}")
+        return True  # Default allow
+
+def check_earnings_blackout(symbol):
+    """
+    Gate 2: Block stocks within 10 days of quarterly results.
+    Returns True = safe (no results soon), False = blackout period.
+    """
+    try:
+        sym = symbol if ".NS" in symbol else symbol + ".NS"
+        ticker = yf.Ticker(sym)
+        cal = ticker.calendar
+        if cal is not None and not cal.empty:
+            for col in cal.columns:
+                if 'earnings' in str(col).lower():
+                    dates = cal[col].dropna()
+                    for d in dates:
+                        try:
+                            if hasattr(d, 'date'):
+                                ed = d.date()
+                            else:
+                                ed = pd.to_datetime(d).date()
+                            today = datetime.now(IST).date()
+                            diff = abs((ed - today).days)
+                            if diff <= 10:
+                                print(f"  EARNINGS BLACKOUT: {symbol} results in {diff} days")
+                                return False
+                        except:
+                            pass
+    except:
+        pass
+    return True  # Safe — no earnings found nearby
+
+def check_delivery_volume(symbol):
+    """
+    Gate 3: Only stocks with >40% delivery volume — filters out pure speculative pumps.
+    Returns delivery percentage or None if unavailable.
+    """
+    try:
+        sym = symbol.replace(".NS", "")
+        url = f"https://www.nseindia.com/api/quote-equity?symbol={sym}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://www.nseindia.com/'
+        }
+        session = requests.Session()
+        session.get('https://www.nseindia.com/', headers=headers, timeout=10)
+        time.sleep(1)
+        r = session.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            delv = data.get('securityWiseDP', {})
+            delv_pct = delv.get('deliveryToTradedQuantity', None)
+            if delv_pct is not None:
+                return float(delv_pct)
+    except:
+        pass
+    return None  # Unknown — don't block, just note
+
+def get_persistence_watchlist(sheet):
+    """
+    Gate 4: Load yesterday's top 20 from Google Sheets for persistence check.
+    Returns set of symbols that appeared yesterday.
+    """
+    try:
+        if not sheet:
+            return set()
+        try:
+            ws = sheet.worksheet("Persistence")
+        except:
+            ws = sheet.add_worksheet("Persistence", rows=100, cols=5)
+            ws.append_row(["Date", "Symbol", "Score", "Sector", "Setup"])
+            return set()
+        records = ws.get_all_records()
+        today = datetime.now(IST).strftime('%d %b %Y')
+        yesterday_syms = set()
+        for r in records:
+            if r.get("Date", "") != today:  # Any previous day entry
+                yesterday_syms.add(str(r.get("Symbol", "")).strip())
+        return yesterday_syms
+    except Exception as e:
+        print(f"  Persistence load error: {e}")
+        return set()
+
+def save_persistence_watchlist(sheet, top20):
+    """Save today's top 20 to Persistence tab for tomorrow's check."""
+    try:
+        if not sheet or not top20:
+            return
+        try:
+            ws = sheet.worksheet("Persistence")
+        except:
+            ws = sheet.add_worksheet("Persistence", rows=100, cols=5)
+            ws.append_row(["Date", "Symbol", "Score", "Sector", "Setup"])
+        today = datetime.now(IST).strftime('%d %b %Y')
+        # Clear old data beyond 3 days
+        existing = ws.get_all_records()
+        rows_to_keep = [["Date", "Symbol", "Score", "Sector", "Setup"]]
+        cutoff = (datetime.now(IST) - timedelta(days=3)).date()
+        for r in existing:
+            try:
+                rd = datetime.strptime(r.get("Date",""), '%d %b %Y').date()
+                if rd >= cutoff:
+                    rows_to_keep.append([r.get("Date",""), r.get("Symbol",""),
+                                         r.get("Score",""), r.get("Sector",""), r.get("Setup","")])
+            except:
+                pass
+        # Add today's entries
+        for r in top20:
+            sym = r.get('symbol', r.get('Symbol', ''))
+            score = r.get('score', r.get('efficiency', 0))
+            sector = r.get('sector', '')
+            setup = r.get('trade_type', r.get('signal', ''))
+            rows_to_keep.append([today, sym, score, sector, setup])
+        ws.clear()
+        ws.update(rows_to_keep)
+        print(f"  Saved {len(top20)} stocks to Persistence tab")
+    except Exception as e:
+        print(f"  Persistence save error: {e}")
+
+def calculate_position_size(price, sl_price, capital=200000, risk_pct=0.02):
+    """
+    Gate 5: Dynamic position sizing — 2% risk rule.
+    Never risk more than 2% of capital on any single trade.
+    Returns qty and capital deployed.
+    """
+    risk_amount = capital * risk_pct  # ₹4,000 max loss per trade
+    risk_per_share = price - sl_price
+    if risk_per_share <= 0:
+        return 0, 0
+    qty = int(risk_amount / risk_per_share)
+    deployed = round(qty * price)
+    # Cap at ₹50,000 per trade (your existing limit)
+    if deployed > 50000:
+        qty = int(50000 / price)
+        deployed = round(qty * price)
+    return qty, deployed
+
 # ── Credentials ──────────────────────────────────────────────
 GMAIL_ADDRESS    = os.environ.get('GMAIL_ADDRESS')
 GMAIL_PASSWORD   = os.environ.get('GMAIL_PASSWORD')
@@ -881,7 +1046,7 @@ def pa_setup_type(df, sr, curr, ema20, ema50):
         d_res  = (res_p - curr) / curr * 100
         last5_down = float(closes[-1]) < float(closes[-5]) if len(closes) >= 5 else False
 
-        if d_sup <= 3 and sup_t >= 2:
+        if d_sup <= 3 and sup_t >= 3:  # FUND MANAGER: minimum 3 touches
             trade_type = "REVERSAL"
             bonus += 15
             lbl = "MAJOR" if sup_t >= 3 else "MODERATE"
@@ -1042,7 +1207,7 @@ def pa_dynamic_targets(curr, sr, trade_type):
 
 def pa_analyse(symbol, sector_signals, nifty_cond,
                min_price=50, max_price=3000,
-               min_vol=150000, max_rsi=68, min_score=60):
+               min_vol=150000, max_rsi=68, min_score=75):
     try:
         sym       = symbol if ".NS" in symbol else symbol + ".NS"
         sym_clean = sym.replace(".NS", "")

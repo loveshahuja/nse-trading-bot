@@ -572,6 +572,13 @@ def run():
 
     sheet = setup_sheets()
 
+    # ── FUND MANAGER GATE 1: Nifty Weekly Trend ──────────────
+    print("\n[GATE 1] Checking Nifty weekly trend...")
+    nifty_weekly_ok = check_nifty_weekly_trend()
+    if not nifty_weekly_ok:
+        print("  ⚠️ Nifty weekly downtrend — BUY signals will be heavily filtered")
+    # ── END GATE 1 ─────────────────────────────────────────────
+
     # Step 1: Sector momentum
     sector_signals = get_sector_momentum()
 
@@ -608,46 +615,57 @@ def run():
             print(f"  Progress: {i+1}/{len(nse_syms)} | Valid: {len(all_results)}")
         time.sleep(0.25)
 
-    # Step 6: Rank — enhanced filters v4.1
+    # Step 6: Rank — Fund Manager Quality Gates v5.0
+    yesterday_picks = get_persistence_watchlist(sheet)
+    print(f"  Persistence: {len(yesterday_picks)} stocks from yesterday: {list(yesterday_picks)[:5]}")
+
     def has_good_target(r):
         target_gap = ((r['target'] - r['price']) / r['price']) * 100
         return target_gap >= 7.0
 
     def passes_quality_gate(r):
-        """Hard filters — if ANY of these fail, signal is blocked."""
-        # FILTER 1: Never suggest BUY in a bearish sector
+        sym = r['symbol']
+        if not nifty_weekly_ok and r.get('efficiency', 0) < 4:
+            return False
         if 'BEARISH' in str(r.get('sector_mood', '')):
-            print(f"  BLOCKED {r['symbol']} — Sector BEARISH ({r.get('sector','')})")
-            return False
-        # FILTER 2: Never suggest BUY when SMC score is negative (institutions selling)
+            print(f"  BLOCKED {sym} — Sector BEARISH"); return False
         if r.get('smc_score', 0) < -10:
-            print(f"  BLOCKED {r['symbol']} — SMC negative ({r.get('smc_score',0)})")
-            return False
-        # FILTER 3: SMC Stage must not be Declining or Distribution
+            print(f"  BLOCKED {sym} — SMC negative ({r.get('smc_score',0)})"); return False
         if str(r.get('stage', '')).lower() in ['declining', 'distribution']:
-            print(f"  BLOCKED {r['symbol']} — SMC Stage {r.get('stage','')}")
-            return False
-        # FILTER 4: Minimum 2/5 efficiency — 1/5 star signals are too weak
-        if r.get('efficiency', 0) < 2:
-            print(f"  BLOCKED {r['symbol']} — Efficiency too low ({r.get('efficiency',0)}/5)")
-            return False
-        # FILTER 5: RSI above 72 — overheated, not a buy
+            print(f"  BLOCKED {sym} — SMC Stage {r.get('stage','')}"); return False
+        if r.get('efficiency', 0) < 3:
+            print(f"  BLOCKED {sym} — Efficiency {r.get('efficiency',0)}/5"); return False
         if r.get('rsi', 50) > 72:
-            print(f"  BLOCKED {r['symbol']} — RSI overheated ({r.get('rsi',0)})")
-            return False
-        # FILTER 6: MACD bearish + Trend DOWN = double selling confirmation — skip
+            print(f"  BLOCKED {sym} — RSI {r.get('rsi',0)} overheated"); return False
         if r.get('macd') == 'BEARISH' and r.get('trend') == 'DOWN':
-            print(f"  BLOCKED {r['symbol']} — MACD Bearish + Trend DOWN")
-            return False
+            print(f"  BLOCKED {sym} — MACD + Trend bearish"); return False
         return True
 
-    strong = sorted([r for r in all_results if r['signal']=="STRONG BUY" and has_good_target(r) and passes_quality_gate(r)],
-                    key=lambda x: (x['efficiency'], x['buy_score'], x.get('smc_score',0)), reverse=True)
-    buys = sorted([r for r in all_results if r['signal']=="BUY" and has_good_target(r) and passes_quality_gate(r)],
-                  key=lambda x: (x['efficiency'], x['buy_score'], x.get('smc_score',0)), reverse=True)
+    def add_persistence(r):
+        if r['symbol'] in yesterday_picks:
+            r['efficiency'] = min(5, r['efficiency'] + 1)
+            r['persistence'] = True
+            print(f"  PERSISTENCE: {r['symbol']} appeared yesterday too ✔️")
+        else:
+            r['persistence'] = False
+        return r
+
+    qualified = [add_persistence(r) for r in all_results
+                 if has_good_target(r) and passes_quality_gate(r)]
+
+    strong = sorted([r for r in qualified if r['signal']=="STRONG BUY"],
+                    key=lambda x: (x.get('persistence',False), x['efficiency'],
+                                   x['buy_score'], x.get('smc_score',0)), reverse=True)
+    buys   = sorted([r for r in qualified if r['signal']=="BUY"],
+                    key=lambda x: (x.get('persistence',False), x['efficiency'],
+                                   x['buy_score'], x.get('smc_score',0)), reverse=True)
     top20 = diversify_top20(strong + buys, sector_signals)
     total = len(all_results)
     print(f"\nScan complete! Valid: {total} | Strong Buy: {len(strong)} | Buy: {len(buys)}")
+
+    # Save today's results for tomorrow's persistence check
+    if sheet:
+        save_persistence_watchlist(sheet, top20)
 
     # Step 7: Save + send
     if sheet:
@@ -662,8 +680,34 @@ def run():
     log_signal_to_sheets(top20, "MORNING")
 
     if top20:
+        # Add dynamic position sizing to top picks
+        for r in top20:
+            sl_price = r.get('sl', r['price'] * 0.97)
+            qty, deployed = calculate_position_size(r['price'], sl_price)
+            r['recommended_qty'] = qty
+            r['recommended_deploy'] = deployed
         watchlist = build_watchlist_message(top20[:3], today)
         send_telegram(watchlist)
+    else:
+        # Fund manager no-trade message
+        send_telegram(f"""🚫 <b>NO TRADE TODAY — {today}</b>
+⏰ {now}
+
+Market conditions do not meet quality standards.
+
+Reason: No stock passed all 7 quality gates today.
+This is a valid decision — protecting capital.
+
+Gates checked:
+✓ Nifty weekly trend: {'✅ UP' if nifty_weekly_ok else '❌ DOWN'}
+✓ Sector momentum filter
+✓ Support strength (3+ touches)
+✓ SMC institutional alignment
+✓ Minimum 3/5 efficiency
+✓ RSI not overheated
+✓ MACD + Trend alignment
+
+<b>Best action today: Hold existing positions, no new entries.</b>""")
 
     send_telegram(tg)
 

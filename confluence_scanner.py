@@ -51,12 +51,27 @@ def run():
 
     nifty_cond, nifty_rsi = pa_nifty_condition()
     print(f"Nifty: {nifty_cond} | RSI: {nifty_rsi:.1f}")
-    min_score = 62 + (10 if nifty_cond == "BEARISH" else 0)
+
+    # ── FUND MANAGER GATE: Nifty Weekly Trend ─────────────────
+    print("[GATE] Checking Nifty weekly trend...")
+    nifty_weekly_ok = check_nifty_weekly_trend()
+    if not nifty_weekly_ok:
+        print("  ⚠️ Weekly downtrend — raising score threshold")
+
+    # Fund Manager standard: min score 75, raised further in bad conditions
+    min_score = 75
+    if nifty_cond == "BEARISH":      min_score = 82
+    if not nifty_weekly_ok:          min_score = max(min_score, 80)
+    if nifty_cond == "OVERBOUGHT":   min_score = max(min_score, 78)
+    print(f"  Min score threshold: {min_score}/100")
 
     sector_signals = get_sector_momentum()
     fii_dii = get_fii_dii()
     fii_net = fii_dii.get("fii_net", 0) or 0
     nse_symbols = get_nse_symbols()
+    sheet = setup_sheets()
+    yesterday_picks = get_persistence_watchlist(sheet)
+    print(f"  Persistence watchlist: {len(yesterday_picks)} stocks from yesterday")
     print(f"Scanning {len(nse_symbols)} stocks | Min score: {min_score}...")
 
     results = []; scanned = 0
@@ -65,36 +80,48 @@ def run():
             if already_sent(sym.replace(".NS","")): continue
             r = pa_analyse(sym, sector_signals, nifty_cond, min_score=min_score)
             if r:
-                # ── HARD QUALITY FILTERS v3.1 ──────────────────────────
-                # FILTER 1: Block bearish sector — sector trend overrides everything
-                if "BEARISH" in str(r.get("sector","")) or "BEARISH" in str(sector_signals.get(r.get("sector",""), "")):
+                # ── FUND MANAGER QUALITY FILTERS v5.0 ──────────────────
+                # F1: Block bearish sector
+                if "BEARISH" in str(sector_signals.get(r.get("sector",""), "")):
                     print(f"  BLOCKED {r['symbol']} — Sector BEARISH")
-                    scanned += 1
-                    continue
-                # FILTER 2: Require minimum 2x support touches — 1x is not real support
-                if r.get("sup_touches", 0) < 2:
-                    print(f"  BLOCKED {r['symbol']} — Support only {r.get('sup_touches',0)}x touch (need 2+)")
-                    scanned += 1
-                    continue
-                # FILTER 3: Block Declining/Distribution SMC stage
+                    scanned += 1; continue
+                # F2: Require minimum 3 support touches
+                if r.get("sup_touches", 0) < 3:
+                    print(f"  BLOCKED {r['symbol']} — Support {r.get('sup_touches',0)}x (need 3+)")
+                    scanned += 1; continue
+                # F3: Block Declining/Distribution stage
                 if str(r.get("stage","")).lower() in ["declining", "distribution"]:
-                    print(f"  BLOCKED {r['symbol']} — SMC stage {r.get('stage','')}")
-                    scanned += 1
-                    continue
-                # FILTER 4: Block if MACD bearish AND EMA bearish simultaneously
+                    print(f"  BLOCKED {r['symbol']} — Stage {r.get('stage','')}")
+                    scanned += 1; continue
+                # F4: MACD + EMA both bearish
                 if not r.get("macd_bull", True) and not r.get("ema_bull", True):
-                    print(f"  BLOCKED {r['symbol']} — MACD + EMA both bearish")
-                    scanned += 1
-                    continue
+                    print(f"  BLOCKED {r['symbol']} — MACD+EMA bearish")
+                    scanned += 1; continue
+                # F5: Weekly downtrend — only very high scores
+                if not nifty_weekly_ok and r.get("score", 0) < 82:
+                    print(f"  BLOCKED {r['symbol']} — Weekly downtrend, score {r.get('score',0)}")
+                    scanned += 1; continue
                 # ── END FILTERS ─────────────────────────────────────────
+                # Persistence bonus + position sizing
+                if r["symbol"] in yesterday_picks:
+                    r["score"] = min(100, r["score"] + 5)
+                    r["persistence"] = True
+                    print(f"  PERSISTENCE: {r['symbol']} confirmed 2nd day ✔️")
+                else:
+                    r["persistence"] = False
+                sl_price = r.get("sl", r["price"] * 0.97)
+                qty, deployed = calculate_position_size(r["price"], sl_price)
+                r["recommended_qty"] = qty
+                r["recommended_deploy"] = deployed
                 results.append(r)
-                print(f"  FOUND: {r['symbol']} {r['score']}/100 | {r['trade_type']} | Sup:{r['support']}({r['sup_touches']}x) | T1:+{r['t1_pct']}% | R/R:{r['rr']}")
+                persist_tag = " ✔️PERSISTENT" if r["persistence"] else ""
+                print(f"  FOUND: {r['symbol']} {r['score']}/100 | {r['trade_type']} | Sup:{r['support']}({r['sup_touches']}x) | T1:+{r['t1_pct']}% | R/R:{r['rr']}{persist_tag}")
             scanned += 1
             if (i+1) % 300 == 0: print(f"  Progress: {i+1}/{len(nse_symbols)} | Found: {len(results)}")
             time.sleep(0.4)
         except: pass
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: (x.get("persistence", False), x["score"]), reverse=True)
     top = results[:MAX_RESULTS]
     print(f"\nDone. Scanned:{scanned} | Qualified:{len(results)} | Sending:{len(top)}")
 
@@ -102,10 +129,17 @@ def run():
     fii_txt = f"FII {'Buying' if fii_net>0 else 'Selling'} Rs{abs(fii_net):,.0f} Cr" if fii_net else "FII: N/A"
 
     if not top:
-        send_telegram(f"""No signals — Confluence v3.0 — {today} {now_str}
+        weekly_status = "✅ UPTREND" if nifty_weekly_ok else "❌ DOWNTREND"
+        send_telegram(f"""🚫 <b>NO CONFLUENCE SIGNAL — {today} {now_str}</b>
+
 Scanned: {scanned} | Market: {nifty_cond} (RSI {nifty_rsi:.0f})
-No stock met quality gate (Score >= {min_score} + R/R >= 1.8)
-No trade is a valid decision.
+Nifty Weekly: {weekly_status}
+Min Score Required: {min_score}/100
+Persistence Watchlist: {len(yesterday_picks)} candidates from yesterday
+
+No stock cleared all quality gates today.
+<b>This is the correct decision — no forced trades.</b>
+
 Killzone: {kz['zone']} — {kz['note']}
 Next scan in 2 hours.""")
         return
@@ -156,6 +190,9 @@ Full report sent to Gmail""")
     <p style='color:#999;font-size:12px;margin-top:20px'>Always use stop loss. Technical analysis only.</p></body></html>"""
 
     log_to_sheets(top)
+    # Save today's results for tomorrow's persistence check
+    if sheet:
+        save_persistence_watchlist(sheet, top)
     send_email(
         subject=f"Confluence v3.0 - {today} | {top[0]['symbol']} {top[0]['score']}/100 | {top[0]['trade_type']}",
         body=html
