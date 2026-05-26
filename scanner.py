@@ -608,14 +608,42 @@ def run():
             print(f"  Progress: {i+1}/{len(nse_syms)} | Valid: {len(all_results)}")
         time.sleep(0.25)
 
-    # Step 6: Rank — same filter as v3.0
+    # Step 6: Rank — enhanced filters v4.1
     def has_good_target(r):
         target_gap = ((r['target'] - r['price']) / r['price']) * 100
         return target_gap >= 7.0
 
-    strong = sorted([r for r in all_results if r['signal']=="STRONG BUY" and has_good_target(r)],
+    def passes_quality_gate(r):
+        """Hard filters — if ANY of these fail, signal is blocked."""
+        # FILTER 1: Never suggest BUY in a bearish sector
+        if 'BEARISH' in str(r.get('sector_mood', '')):
+            print(f"  BLOCKED {r['symbol']} — Sector BEARISH ({r.get('sector','')})")
+            return False
+        # FILTER 2: Never suggest BUY when SMC score is negative (institutions selling)
+        if r.get('smc_score', 0) < -10:
+            print(f"  BLOCKED {r['symbol']} — SMC negative ({r.get('smc_score',0)})")
+            return False
+        # FILTER 3: SMC Stage must not be Declining or Distribution
+        if str(r.get('stage', '')).lower() in ['declining', 'distribution']:
+            print(f"  BLOCKED {r['symbol']} — SMC Stage {r.get('stage','')}")
+            return False
+        # FILTER 4: Minimum 2/5 efficiency — 1/5 star signals are too weak
+        if r.get('efficiency', 0) < 2:
+            print(f"  BLOCKED {r['symbol']} — Efficiency too low ({r.get('efficiency',0)}/5)")
+            return False
+        # FILTER 5: RSI above 72 — overheated, not a buy
+        if r.get('rsi', 50) > 72:
+            print(f"  BLOCKED {r['symbol']} — RSI overheated ({r.get('rsi',0)})")
+            return False
+        # FILTER 6: MACD bearish + Trend DOWN = double selling confirmation — skip
+        if r.get('macd') == 'BEARISH' and r.get('trend') == 'DOWN':
+            print(f"  BLOCKED {r['symbol']} — MACD Bearish + Trend DOWN")
+            return False
+        return True
+
+    strong = sorted([r for r in all_results if r['signal']=="STRONG BUY" and has_good_target(r) and passes_quality_gate(r)],
                     key=lambda x: (x['efficiency'], x['buy_score'], x.get('smc_score',0)), reverse=True)
-    buys = sorted([r for r in all_results if r['signal']=="BUY" and has_good_target(r)],
+    buys = sorted([r for r in all_results if r['signal']=="BUY" and has_good_target(r) and passes_quality_gate(r)],
                   key=lambda x: (x['efficiency'], x['buy_score'], x.get('smc_score',0)), reverse=True)
     top20 = diversify_top20(strong + buys, sector_signals)
     total = len(all_results)

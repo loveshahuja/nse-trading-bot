@@ -65,6 +65,28 @@ def run():
             if already_sent(sym.replace(".NS","")): continue
             r = pa_analyse(sym, sector_signals, nifty_cond, min_score=min_score)
             if r:
+                # ── HARD QUALITY FILTERS v3.1 ──────────────────────────
+                # FILTER 1: Block bearish sector — sector trend overrides everything
+                if "BEARISH" in str(r.get("sector","")) or "BEARISH" in str(sector_signals.get(r.get("sector",""), "")):
+                    print(f"  BLOCKED {r['symbol']} — Sector BEARISH")
+                    scanned += 1
+                    continue
+                # FILTER 2: Require minimum 2x support touches — 1x is not real support
+                if r.get("sup_touches", 0) < 2:
+                    print(f"  BLOCKED {r['symbol']} — Support only {r.get('sup_touches',0)}x touch (need 2+)")
+                    scanned += 1
+                    continue
+                # FILTER 3: Block Declining/Distribution SMC stage
+                if str(r.get("stage","")).lower() in ["declining", "distribution"]:
+                    print(f"  BLOCKED {r['symbol']} — SMC stage {r.get('stage','')}")
+                    scanned += 1
+                    continue
+                # FILTER 4: Block if MACD bearish AND EMA bearish simultaneously
+                if not r.get("macd_bull", True) and not r.get("ema_bull", True):
+                    print(f"  BLOCKED {r['symbol']} — MACD + EMA both bearish")
+                    scanned += 1
+                    continue
+                # ── END FILTERS ─────────────────────────────────────────
                 results.append(r)
                 print(f"  FOUND: {r['symbol']} {r['score']}/100 | {r['trade_type']} | Sup:{r['support']}({r['sup_touches']}x) | T1:+{r['t1_pct']}% | R/R:{r['rr']}")
             scanned += 1
