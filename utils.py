@@ -1,6 +1,6 @@
 # ============================================================
 # SHARED UTILITIES v4.0 — ONE-TIME LIFELONG OPTIMIZATION
-# Enforces a strict 750 high-quality liquid stock ceiling 
+# Enforces a 1500 high-quality liquid stock ceiling 
 # Fixed: GitHub Actions private repository billing limits safely avoided.
 # ============================================================
 import yfinance as yf
@@ -840,17 +840,16 @@ def get_nse_symbols():
             print(f"Downloaded {len(raw_list)} standard equities from NSE")
             cleaned_symbols = sorted(list(set(raw_list)))
             
-            # CRITICAL CEILING SLICE: Cap universe at top 750 high-quality stocks.
-            # Safely prevents running out of free GitHub Actions execution minutes.
-            optimized_universe = cleaned_symbols[:750]
-            print(f"🎯 Stock scan list capped at exactly {len(optimized_universe)} liquid profiles.")
+            # Stock universe: 1500 stocks — repo is public, unlimited GitHub Actions minutes
+            optimized_universe = cleaned_symbols[:1500]
+            print(f"🎯 Stock scan list: {len(optimized_universe)} stocks.")
             return optimized_universe
     except Exception as e:
         print(f"NSE download failed: {e}")
     
     # Fallback structure matching identical ceiling metrics
-    fallback = get_fallback_symbols()[:750]
-    print(f"⚠️ Using fallback list sliced to {len(fallback)} profiles.")
+    fallback = get_fallback_symbols()[:1500]
+    print(f"⚠️ Using fallback list: {len(fallback)} stocks.")
     return fallback
 
 def get_fallback_symbols():
