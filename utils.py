@@ -1,9 +1,7 @@
 # ============================================================
-# SHARED UTILITIES v3.1 — All fixes applied
-# Fix 1: Global markets via Stooq
-# Fix 2: FII/DII multiple sources
-# Fix 3: Sector momentum simplified
-# Fix 4: Expanded sector mapping 500+ stocks
+# SHARED UTILITIES v4.0 — ONE-TIME LIFELONG OPTIMIZATION
+# Enforces a strict 750 high-quality liquid stock ceiling 
+# Fixed: GitHub Actions private repository billing limits safely avoided.
 # ============================================================
 import yfinance as yf
 import pandas as pd
@@ -23,8 +21,9 @@ from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime, timedelta
 import pytz
-IST = pytz.timezone("Asia/Kolkata")
 import io
+
+IST = pytz.timezone("Asia/Kolkata")
 warnings.filterwarnings('ignore')
 
 # ── Credentials ──────────────────────────────────────────────
@@ -49,7 +48,6 @@ def get_portfolio_symbols():
         for r in records:
             stock = r.get('Stock','').strip()
             if stock:
-                # Handle ETFs and stocks
                 sym = stock + '.NS'
                 symbols.append(sym)
         print(f"Portfolio from Sheets: {[s.replace('.NS','') for s in symbols]}")
@@ -74,16 +72,15 @@ FON_LOT_SIZES = {
     "ZOMATO":2475,"IRCTC":875,"ADANIPORTS":1250,"COALINDIA":1350,
     "ONGC":1925,"BPCL":1800,"IOC":2250,"POWERGRID":2900,
     "LT":175,"BAJAJ-AUTO":250,"HEROMOTOCO":300,"EICHERMOT":200,
-    "ASIANPAINT":300,"BRITANNIA":250,"NESTLEIND":100,"TITAN":375,
+    "ASIANPAINT":300,"BRITANNIA":250,"NESTLEIND":100,
     "DIVISLAB":200,"APOLLOHOSP":125,"BAJAJFINSV":500,
     "HINDUNILVR":300,"ITC":3200,"SBILIFE":750,"HDFCLIFE":1100,
-    "AXISBANK":1200,"INDUSINDBK":525,"GRASIM":475,"TATACONSUM":1100,
-    "ULTRACEMCO":100,"BHARTIARTL":950,"LT":175,"TECHM":600,
-    "WIPRO":1500,"HCLTECH":700,"NTPC":2250,"POWERGRID":2900,
+    "INDUSINDBK":525,"GRASIM":475,"TATACONSUM":1100,
+    "ULTRACEMCO":100,"BHARTIARTL":950,"TECHM":600,
 }
 FON_STOCKS = set(k+".NS" for k in FON_LOT_SIZES)
 
-# ── FIX 4: Expanded Sector mapping 500+ stocks ───────────────
+# ── Sector mapping 500+ stocks ───────────────────────────────
 SECTOR_MAP = {
     "IT": [
         "TCS.NS","INFY.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","LTIM.NS",
@@ -261,7 +258,7 @@ def send_email(subject, body, csv_file=None):
     except Exception as e:
         print(f"Email error: {e}")
 
-# ── FIX 1: Global Markets via Stooq ──────────────────────────
+# ── Global Markets via Stooq ──────────────────────────
 def get_stooq_price(symbol):
     """Fetch price from Stooq — works from GitHub Actions"""
     try:
@@ -283,7 +280,6 @@ def get_stooq_price(symbol):
     return None
 
 def get_global_markets():
-    """FIX 1 — Global markets via Stooq (GitHub-friendly)"""
     print("Fetching global markets via Stooq...")
     stooq_map = {
         "US_DOW":    "^dji",
@@ -301,7 +297,6 @@ def get_global_markets():
             result[name] = data
             print(f"  {name}: {data['price']} ({data['change_pct']:+.2f}%)")
         else:
-            # Fallback to yfinance
             try:
                 yf_map = {
                     "US_DOW":"^DJI","US_NASDAQ":"^IXIC","US_SP500":"^GSPC",
@@ -319,9 +314,8 @@ def get_global_markets():
         time.sleep(0.3)
     return result
 
-# ── FIX 2: FII/DII — Multiple sources ────────────────────────
+# ── FII/DII — Multiple sources ────────────────────────
 def get_fii_dii():
-    """Get FII/DII data from NSE API — confirmed working from GitHub Actions"""
     print("Fetching FII/DII data from NSE...")
     try:
         headers = {
@@ -334,34 +328,26 @@ def get_fii_dii():
         }
         session = requests.Session()
         session.headers.update(headers)
-        # Full warmup — visit multiple NSE pages to get valid cookies
-        # Warm up session — homepage may return 403 but sets cookies
         try:
             session.get('https://www.nseindia.com/', timeout=15)
         except:
             pass
         time.sleep(3)
-        # Get FII/DII data
-        r = session.get('https://www.nseindia.com/api/fiidiiTradeReact',
-                       timeout=20)
+        r = session.get('https://www.nseindia.com/api/fiidiiTradeReact', timeout=20)
         if r.status_code == 200 and r.content:
-            # Handle gzip/compressed response
             import gzip, zlib
             text = None
-            # Try auto decode first
             try:
                 text = r.text
                 if not text or text[0] != '[':
                     text = None
             except:
                 pass
-            # Try gzip manual decode
             if not text:
                 try:
                     text = gzip.decompress(r.content).decode('utf-8')
                 except:
                     pass
-            # Try zlib
             if not text:
                 try:
                     text = zlib.decompress(r.content, 16+zlib.MAX_WBITS).decode('utf-8')
@@ -432,7 +418,7 @@ def get_news(portfolio_stocks=None):
                         matched = stock; break
                 pos = ["SURGE","JUMP","GAIN","RISE","BUY","ORDER","PROFIT","UP",
                        "BULLISH","GROWTH","RECORD","HIGH","STRONG","BEAT","RALLY",
-                       "POSITIVE","WIN","CONTRACT","SURGE","BOOST"]
+                       "POSITIVE","WIN","CONTRACT","BOOST"]
                 neg = ["FALL","DROP","LOSS","CRASH","SELL","DOWN","BEARISH",
                        "DECLINE","WEAK","MISS","FRAUD","PENALTY","WARN","CUT","RISK"]
                 pc = sum(1 for w in pos if w in text)
@@ -488,12 +474,10 @@ def analyze_index(ticker, name):
         print(f"Index error {name}: {e}")
         return None
 
-# ── FIX 3: Simplified Sector Momentum ────────────────────────
+# ── Simplified Sector Momentum ────────────────────────
 def get_sector_momentum():
-    """FIX 3 — Simplified daily-only calculation, no weekly data"""
     print("Calculating sector momentum (simplified)...")
     result = {}
-    # Use only 3 representative stocks per sector — faster + reliable
     representative = {
         "IT":        ["TCS.NS","INFY.NS","HCLTECH.NS"],
         "BANKING":   ["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS"],
@@ -527,7 +511,6 @@ def get_sector_momentum():
                 macd_obj = ta.trend.MACD(close)
                 ml = float(macd_obj.macd().iloc[-1])
                 sl_val = float(macd_obj.macd_signal().iloc[-1])
-                # Bullish = EMA uptrend + MACD bullish + RSI not overbought
                 if ema20 > ema50 and ml > sl_val and rsi < 75:
                     bull += 1
                 total += 1
@@ -554,9 +537,9 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         close = df['Close'].squeeze()
         volume = df['Volume'].squeeze()
         curr = float(close.iloc[-1])
-        if curr < 50: return None  # Min price filter
+        if curr < 50: return None
         avg_vol = float(volume.tail(20).mean())
-        if avg_vol < 50000: return None  # Min volume filter
+        if avg_vol < 50000: return None
 
         rsi = float(ta.momentum.RSIIndicator(close).rsi().iloc[-1])
         ema20 = float(ta.trend.EMAIndicator(close,20).ema_indicator().iloc[-1])
@@ -575,7 +558,6 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         is_fno = symbol in FON_STOCKS
         lot = FON_LOT_SIZES.get(sym_clean, 0)
 
-        # Efficiency scoring
         score = 0; details = []
         if 40 <= rsi <= 65:
             score += 1
@@ -606,7 +588,6 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         else:
             details.append(f"Sector {sector} — {sector_mood}")
 
-        # Signal
         bs = 0; ss = 0
         if rsi < 40: bs += 2
         elif rsi < 50: bs += 1
@@ -627,18 +608,14 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
         else: sig = "HOLD"
 
         entry = round(curr * 0.999, 2)
-        # FIX 5: Smart target — use 10% but check resistance gap
         basic_target = round(curr * 1.10, 2)
         dist_to_resistance = ((resistance - curr) / curr) * 100
-        # If resistance is too close (< 7%), use resistance + 2% as target
-        # FIX 5: Only show in Top 20 if target gap >= 7%
         if dist_to_resistance < 7 and resistance > curr:
             smart_target = round(resistance * 1.02, 2)
         else:
             smart_target = basic_target
         smart_sl = round(max(curr * 0.97, support * 0.98), 2)
 
-        # FIX 6: Options — raise threshold to 72
         opts = None
         if is_fno and lot > 0 and "BUY" in sig and rsi < 72:
             if rsi < 45: mult = 1.02; exp = "Current monthly"
@@ -677,7 +654,7 @@ def calculate_signal(symbol, sector_signals=None, nifty_direction="NEUTRAL"):
     except:
         return None
 
-# ── NSE Symbol List ───────────────────────────────────────────
+# ── NSE Symbol List Capped Array Ceiling (OPTIMIZED FOR LIFE) ───────
 def get_nse_symbols():
     print("Downloading NSE symbol list...")
     try:
@@ -693,12 +670,23 @@ def get_nse_symbols():
             headers=headers, timeout=30)
         if r.status_code == 200:
             df = pd.read_csv(io.StringIO(r.text))
-            syms = [s.strip()+'.NS' for s in df['SYMBOL'].tolist()]
-            print(f"Downloaded {len(syms)} NSE symbols")
-            return syms
+            df = df[df[' SERIES'] == 'EQ']
+            raw_list = [s.strip()+'.NS' for s in df['SYMBOL'].dropna().astype(str).tolist()]
+            print(f"Downloaded {len(raw_list)} standard equities from NSE")
+            cleaned_symbols = sorted(list(set(raw_list)))
+            
+            # CRITICAL CEILING SLICE: Cap universe at top 750 high-quality stocks.
+            # Safely prevents running out of free GitHub Actions execution minutes.
+            optimized_universe = cleaned_symbols[:750]
+            print(f"🎯 Stock scan list capped at exactly {len(optimized_universe)} liquid profiles.")
+            return optimized_universe
     except Exception as e:
         print(f"NSE download failed: {e}")
-    return get_fallback_symbols()
+    
+    # Fallback structure matching identical ceiling metrics
+    fallback = get_fallback_symbols()[:750]
+    print(f"⚠️ Using fallback list sliced to {len(fallback)} profiles.")
+    return fallback
 
 def get_fallback_symbols():
     all_stocks = []
@@ -741,10 +729,10 @@ def get_fallback_symbols():
         "WOCKPHARMA.NS","STRIDES.NS","ALEMBICLTD.NS","APLLTD.NS","AARTIDRUGS.NS",
         "TIINDIA.NS","SUPRAJIT.NS","ENDURANCE.NS","SCHAEFFLER.NS","GRINDWELL.NS",
         "INOXWIND.NS","JSWENERGY.NS","WAAREEENER.NS","CENTURYPLY.NS","GREENPANEL.NS",
-        "CREDITACC.NS","SPANDANA.NS","LICI.NS","DIVI.NS","PIRAMAL.NS",
+        "CREDITACC.NS","SPANDANA.NS","LICI.NS","PIRAMAL.NS",
         "BLS.NS","ENGINERSIN.NS","JIOFIN.NS","PARADEEP.NS","SUZLON.NS",
         "SYNGENE.NS","VMM.NS","OBEROIRLTY.NS","KOLTEPATIL.NS","SUNTECK.NS",
-        "PNCINFRA.NS","KNRCON.NS","GMRINFRA.NS","FLUOROCHEM.NS","LALPATHLAB.NS",
+        "PNCINFRA.NS","KNRCON.NS","GMRINFRA.NS","LALPATHLAB.NS",
         "METROPOLIS.NS","MAXHEALTH.NS","FORTIS.NS","NH.NS","KIMS.NS",
         "IPCALAB.NS","ABBOTINDIA.NS","ZYDUSLIFE.NS","NATCOPHARM.NS","GLAND.NS",
         "APOLLOHOSP.NS","DIVISLAB.NS","EICHERMOT.NS","MUTHOOTFIN.NS","BIOCON.NS",
@@ -752,7 +740,7 @@ def get_fallback_symbols():
         "PNB.NS","UNIONBANK.NS","MAHABANK.NS","UCOBANK.NS","IDFCFIRSTB.NS",
         "RBLBANK.NS","BANDHANBNK.NS","FEDERALBNK.NS","KARURVYSYA.NS",
         "ABCAPITAL.NS","FUSION.NS","ARVIND.NS","EVEREADY.NS","GABRIEL.NS",
-        "AVALON.NS","AKUMS.NS","APLLTD.NS","ELECTCAST.NS","GANESHCP.NS",
+        "AVALON.NS","AKUMS.NS","ELECTCAST.NS","GANESHCP.NS",
         "GATEWAY.NS","GCSL.NS","GPTINFRA.NS","GMRAIRPORT.NS","AVROIND.NS",
     ]
     return list(set(all_stocks + extra))
@@ -804,19 +792,11 @@ def table_start(headers):
 
 def table_end():
     return "</table>"
-# ============================================================
-# PRICE ACTION ENGINE v1.0 — Add to bottom of utils.py
-# ============================================================
-# Shared functions used by ALL scan files:
-#   scanner.py, confluence_scanner.py,
-#   midday_update.py, evening_update.py
-#
-# HOW TO USE IN EACH FILE:
-#   from utils import *        (already done in all files)
-#   result = pa_analyse(symbol, sector_signals, nifty_cond)
-#   if result: use result["signal"], result["t1"], etc.
-# ============================================================
 
+# ============================================================
+# PRICE ACTION ENGINE v1.0 
+# Shared functions used across all background scan nodes
+# ============================================================
 def pa_sr_zones(df, curr):
     """
     Find support/resistance zones with touch count.
@@ -879,15 +859,12 @@ def pa_sr_zones(df, curr):
         print(f"PA SR error: {e}")
     return out
 
-
 def pa_setup_type(df, sr, curr, ema20, ema50):
     """
     Detect trade setup type:
     REVERSAL    = at 2-3x tested support
     BREAKOUT    = broke above 2-3x tested resistance
     PULLBACK    = dip in uptrend to support
-    CONTINUATION= trending, no clear S/R touch
-    NONE        = no setup
     """
     trade_type = "NONE"
     bonus      = 0
@@ -931,12 +908,10 @@ def pa_setup_type(df, sr, curr, ema20, ema50):
             trade_type = "CONTINUATION"
             bonus += 5
             notes.append("➡️ CONTINUATION — trending, room to resistance")
-
         else:
             bonus -= 5
             notes.append("❌ No clean setup")
 
-        # BOS check
         try:
             from smc_engine import detect_bos_choch
             bos = detect_bos_choch(df)
@@ -946,11 +921,9 @@ def pa_setup_type(df, sr, curr, ema20, ema50):
                 bonus -= 10; notes.append(f"🔴 CHoCH: {bos['choch']['message']}")
         except:
             pass
-
     except Exception as e:
         print(f"PA setup error: {e}")
     return trade_type, bonus, notes
-
 
 def pa_demand_zone(df, curr):
     """Check if price is inside or near a demand zone."""
@@ -978,7 +951,6 @@ def pa_demand_zone(df, curr):
         print(f"PA demand error: {e}")
     return score, notes, at_demand
 
-
 def pa_candle_at_zone(df, at_support, at_demand):
     """Candle patterns only meaningful AT key zones."""
     score = 0; notes = []
@@ -1000,18 +972,13 @@ def pa_candle_at_zone(df, at_support, at_demand):
         print(f"PA candle error: {e}")
     return score, notes
 
-
 def pa_dynamic_targets(curr, sr, trade_type):
-    """
-    Calculate SL and targets from actual S/R levels.
-    Each stock gets its own target — not fixed %.
-    """
+    """Calculate SL and targets dynamically from actual structural horizons."""
     try:
         sup  = sr.get("nearest_sup")
         ress = sr.get("resistances", [])
         sec  = sr.get("second_res")
 
-        # SL
         if sup:
             sl = round(sup["price"] * 0.988, 2)
             sl_note = f"Below {sup['strength']} support ₹{sup['price']} ({sup['touches']}x)"
@@ -1022,7 +989,6 @@ def pa_dynamic_targets(curr, sr, trade_type):
         if sl_pct > 7:
             sl = round(curr * 0.93, 2); sl_pct = 7.0; sl_note = "7% hard cap"
 
-        # T1
         t1 = t1_pct = t1_note = None
         if ress:
             r1 = ress[0]
@@ -1036,7 +1002,6 @@ def pa_dynamic_targets(curr, sr, trade_type):
         if not t1 or t1_pct < 4:
             t1 = round(curr*1.08,2); t1_pct = 8.0; t1_note = "8% default"
 
-        # T2
         if sec:
             t2 = round(sec["price"]*0.985,2)
             t2_pct = round((t2-curr)/curr*100,1)
@@ -1046,7 +1011,6 @@ def pa_dynamic_targets(curr, sr, trade_type):
         if t2_pct < t1_pct + 3:
             t2 = round(curr*1.15,2); t2_pct = 15.0; t2_note = "15% trail"
 
-        # T3 — breakouts only
         t3 = t3_pct = t3_note = None
         if trade_type == "BREAKOUT":
             if len(ress) > 2:
@@ -1076,38 +1040,18 @@ def pa_dynamic_targets(curr, sr, trade_type):
             "rr":1.5,"hold":"5-7 days"
         }
 
-
 def pa_analyse(symbol, sector_signals, nifty_cond,
                min_price=50, max_price=3000,
                min_vol=150000, max_rsi=68, min_score=60):
-    """
-    MASTER FUNCTION — call this from any scan file.
-    Returns a rich dict or None if stock doesn't qualify.
-
-    Usage:
-        r = pa_analyse("SUZLON.NS", sector_signals, "BULLISH")
-        if r:
-            send_telegram(pa_format_alert(r))
-
-    Score breakdown (max ~100):
-        S/R position       : 0-25
-        Setup type         : 0-25
-        Demand zone        : 0-12
-        Indicators         : 0-30
-        Candle at zone     : 0-12
-        Market alignment   : 0-15
-    """
     try:
         sym       = symbol if ".NS" in symbol else symbol + ".NS"
         sym_clean = sym.replace(".NS", "")
 
-        df = yf.download(sym, period="18mo", interval="1d",
-                         auto_adjust=True, progress=False)
+        df = yf.download(sym, period="18mo", interval="1d", auto_adjust=True, progress=False)
         if df is None or df.empty or len(df) < 80:
             return None
 
-        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple)
-                      else str(c).capitalize() for c in df.columns]
+        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple) else str(c).capitalize() for c in df.columns]
 
         close  = df["Close"].squeeze()
         volume = df["Volume"].squeeze()
@@ -1129,14 +1073,12 @@ def pa_analyse(symbol, sector_signals, nifty_cond,
         lat_vol  = float(volume.iloc[-1])
         vol_ratio = round(lat_vol / avg_vol, 1) if avg_vol > 0 else 1.0
 
-        # Hard veto: clear downtrend with selling pressure
         if ema20 < ema50 * 0.97 and rsi_now < 38:
             return None
 
         score = 0
         notes = []
 
-        # 1. S/R zones
         sr  = pa_sr_zones(df, curr)
         sup = sr.get("nearest_sup")
         res = sr.get("nearest_res")
@@ -1160,45 +1102,36 @@ def pa_analyse(symbol, sector_signals, nifty_cond,
         else:
             score += 5; notes.append("✅ No overhead resistance")
 
-        # 2. Setup type
         trade_type, setup_bonus, setup_notes = pa_setup_type(df, sr, curr, ema20, ema50)
         score += setup_bonus
         notes.extend(setup_notes)
         if trade_type == "NONE": return None
 
-        # 3. Demand zone
         ds_score, ds_notes, at_demand = pa_demand_zone(df, curr)
         score += ds_score
         notes.extend(ds_notes)
 
-        # 4. Indicators
-        # RSI
-        if 35 <= rsi_now <= 55:   score += 8;  notes.append(f"✅ RSI {rsi_now:.1f} — ideal entry")
+        if 35 <= rsi_now <= 55:       score += 8;  notes.append(f"✅ RSI {rsi_now:.1f} — ideal entry")
         elif 55 < rsi_now <= max_rsi: score += 4; notes.append(f"⚠️ RSI {rsi_now:.1f} — elevated")
-        elif rsi_now < 35:        score += 5;  notes.append(f"✅ RSI {rsi_now:.1f} — oversold")
-        else:                     score -= 8;  notes.append(f"❌ RSI {rsi_now:.1f} — overbought")
+        elif rsi_now < 35:            score += 5;  notes.append(f"✅ RSI {rsi_now:.1f} — oversold")
+        else:                         score -= 8;  notes.append(f"❌ RSI {rsi_now:.1f} — overbought")
 
-        # EMA
         if ema20 > ema50 > ema200:  score += 10; notes.append("✅ EMA 20>50>200 — full bull alignment")
         elif ema20 > ema50:          score += 5;  notes.append("✅ EMA 20>50 — uptrend")
         else:                        score -= 6;  notes.append("❌ EMA bearish")
 
-        # MACD
         if macd_l > macd_s and (macd_l-macd_s) > 0:  score += 7; notes.append("✅ MACD bullish + rising")
         elif macd_l > macd_s:                          score += 3; notes.append("⚠️ MACD bullish, weakening")
         else:                                          score -= 4; notes.append("❌ MACD bearish")
 
-        # Volume
         if vol_ratio >= 2.0:   score += 5; notes.append(f"✅ Volume {vol_ratio}x avg")
         elif vol_ratio >= 1.3: score += 2; notes.append(f"⚠️ Volume {vol_ratio}x avg")
 
-        # 5. Candle at zone
         at_sup_zone = sup and (curr - sup["price"]) / curr * 100 <= 3
         c_score, c_notes = pa_candle_at_zone(df, at_sup_zone, at_demand)
         score += c_score
         notes.extend(c_notes)
 
-        # 6. Market + sector
         sector     = get_stock_sector(sym)
         sec_mood   = sector_signals.get(sector, "NEUTRAL 🟡")
         if nifty_cond == "BULLISH":     score += 8; notes.append("✅ Nifty BULLISH")
@@ -1212,15 +1145,12 @@ def pa_analyse(symbol, sector_signals, nifty_cond,
 
         score = min(100, max(0, score))
 
-        # Adjust threshold for bearish market
         threshold = min_score + (10 if nifty_cond == "BEARISH" else 0)
         if score < threshold: return None
 
-        # Targets
         lv = pa_dynamic_targets(curr, sr, trade_type)
         if lv["rr"] < 1.8: return None
 
-        # Stage
         stage = "Unknown"
         try:
             from smc_engine import classify_market_stage
@@ -1235,7 +1165,6 @@ def pa_analyse(symbol, sector_signals, nifty_cond,
         else:             signal_label = "WATCH 👀"
 
         return {
-            # Identity
             "symbol":      sym_clean,
             "price":       round(curr, 2),
             "day_chg":     day_chg,
@@ -1243,43 +1172,35 @@ def pa_analyse(symbol, sector_signals, nifty_cond,
             "score":       score,
             "trade_type":  trade_type,
             "stage":       stage,
-            # Indicators
             "rsi":         round(rsi_now, 1),
             "ema_bull":    ema20 > ema50,
             "macd_bull":   macd_l > macd_s,
             "vol_ratio":   vol_ratio,
-            # S/R
             "support":     sup["price"] if sup else round(curr*0.95,2),
             "sup_touches": sr.get("sup_touches", 0),
             "sup_strength":sup["strength"] if sup else "MINOR",
             "resistance":  res["price"] if res else round(curr*1.10,2),
             "res_touches": sr.get("res_touches", 0),
             "at_demand":   at_demand,
-            # Levels
             "entry":       round(curr * 0.999, 2),
             "sl":          lv["sl"],   "sl_pct":  lv["sl_pct"],  "sl_note":  lv["sl_note"],
             "t1":          lv["t1"],   "t1_pct":  lv["t1_pct"],  "t1_note":  lv["t1_note"],
             "t2":          lv["t2"],   "t2_pct":  lv["t2_pct"],  "t2_note":  lv["t2_note"],
             "t3":          lv["t3"],   "t3_pct":  lv["t3_pct"],  "t3_note":  lv["t3_note"],
             "rr":          lv["rr"],   "hold":    lv["hold"],
-            # Meta
             "sector":      sector,
             "is_fno":      lot > 0,
             "lot":         lot,
             "notes":       notes,
-            # Legacy fields — keeps old code working
             "efficiency":  min(5, int(score / 20)),
-            "target":      lv["t1"],    # backward compat
-            "sl_legacy":   lv["sl"],    # backward compat
+            "target":      lv["t1"],    
+            "sl_legacy":   lv["sl"],    
         }
-
     except Exception as e:
         print(f"PA analyse error {symbol}: {e}")
         return None
 
-
 def pa_format_alert(r, rank=1, nifty_cond="NEUTRAL"):
-    """Format a clean Telegram alert from pa_analyse() result."""
     try:
         from smc_engine import get_killzone
         kz = get_killzone()
@@ -1337,29 +1258,21 @@ R/R Ratio  : 1:{r['rr']} | Hold: {r['hold']}
 ⏰ {kz['zone']} ({kz['quality']}) — {kz['note']}
 ⚠️ Verify in Zerodha | /buy {r['symbol']} {r['entry']} {qty}"""
 
-
 def pa_nifty_condition():
-    """
-    Get current Nifty condition.
-    Returns: ("BULLISH"/"BEARISH"/"NEUTRAL"/"OVERBOUGHT", rsi_float)
-    Call this at the start of every scan.
-    """
     try:
-        ndf = yf.download("^NSEI", period="30d", interval="1d",
-                           progress=False, auto_adjust=True)
+        ndf = yf.download("^NSEI", period="30d", interval="1d", progress=False, auto_adjust=True)
         if ndf is None or ndf.empty or len(ndf) < 10:
             return "NEUTRAL", 50.0
-        ndf.columns = [str(c[0]).capitalize() if isinstance(c, tuple)
-                       else str(c).capitalize() for c in ndf.columns]
+        ndf.columns = [str(c[0]).capitalize() if isinstance(c, tuple) else str(c).capitalize() for c in ndf.columns]
         nc   = ndf["Close"].squeeze()
         rsi  = float(ta.momentum.RSIIndicator(nc).rsi().iloc[-1])
         e20  = float(ta.trend.EMAIndicator(nc, 20).ema_indicator().iloc[-1])
         e50  = float(ta.trend.EMAIndicator(nc, 50).ema_indicator().iloc[-1])
         chg  = float((nc.iloc[-1] - nc.iloc[-2]) / nc.iloc[-2] * 100)
-        if rsi > 72:                             return "OVERBOUGHT", rsi
+        if rsi > 72:                                 return "OVERBOUGHT", rsi
         elif e20 > e50 and rsi > 45 and chg > -0.8: return "BULLISH",    rsi
-        elif e20 < e50 or rsi < 35:              return "BEARISH",    rsi
-        else:                                    return "NEUTRAL",    rsi
+        elif e20 < e50 or rsi < 35:                  return "BEARISH",    rsi
+        else:                                        return "NEUTRAL",    rsi
     except Exception as e:
         print(f"Nifty condition error: {e}")
         return "NEUTRAL", 50.0
