@@ -25,7 +25,7 @@ MIN_PRICE     = 100    # BTST needs enough price movement in Rs
 MAX_PRICE     = 5000
 MIN_AVG_VOL   = 200000 # Higher liquidity for overnight hold
 MAX_RSI_BTST  = 75     # Can be slightly overbought for momentum
-MIN_BTST_SCORE = 60
+MIN_BTST_SCORE = 75
 MAX_RESULTS   = 5      # Top 5 BTST picks
 
 BTST_SCAN_LIST_SIZE = 300  # Scan focused list, not all 2367
@@ -335,6 +335,11 @@ def analyse_btst(symbol, sector_signals, nifty_cond):
         if "BULLISH" in sec_mood:   score += 5; notes.append(f"✅ Sector {sector} BULLISH")
         elif "BEARISH" in sec_mood: score -= 5; notes.append(f"⚠️ Sector {sector} BEARISH")
 
+        # FUND MANAGER GATE: Hard block bearish sector — overnight gap-down risk too high
+        if "BEARISH" in sec_mood:
+            print(f"  BLOCKED {sym_clean} — Sector {sector} BEARISH (overnight risk)")
+            return None
+
         score = min(100, max(0, score))
         if score < MIN_BTST_SCORE: return None
 
@@ -346,7 +351,7 @@ def analyse_btst(symbol, sector_signals, nifty_cond):
         lot     = FON_LOT_SIZES.get(sym_clean, 0)
 
         if score >= 80:   signal = "STRONG BTST 🔥"
-        elif score >= 68: signal = "BTST BUY ⭐"
+        elif score >= 75: signal = "BTST BUY ⭐"
         else:             signal = "BTST WATCH 👀"
 
         return {

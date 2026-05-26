@@ -7,3 +7,4 @@ ta
 pandas
 pytz
 apscheduler
+numpy
