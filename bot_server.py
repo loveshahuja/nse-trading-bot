@@ -1,10 +1,10 @@
 # ============================================================
-# NSE TRADING BOT v5.0 — RENDER SERVER
+# NSE TRADING BOT v7.0 — RENDER SERVER
 # Lightweight — only handles:
 # 1. Telegram webhook (instant 24/7 responses)
-# 2. APScheduler triggers GitHub Actions at right times
-# 3. Health check
-# NO heavy scanning — GitHub Actions does that
+# 2. APScheduler tracks live open positions for SL/Target hits
+# 3. Health check endpoints routed via Cron-job.org
+# NO heavy scanning — GitHub Actions handles that safely
 # ============================================================
 from flask import Flask, request, jsonify
 import requests
@@ -86,7 +86,6 @@ def setup_sheets():
 
 # ── GitHub Actions Trigger ────────────────────────────────────
 def trigger_github_workflow(workflow_name):
-    """Trigger a GitHub Actions workflow via API"""
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{workflow_name}/dispatches"
         headers = {
@@ -106,11 +105,11 @@ def trigger_github_workflow(workflow_name):
         print(f"❌ GitHub trigger error: {e}")
         return False
 
-# ── Scheduled Triggers ────────────────────────────────────────
+# ── Scheduled Triggers (Lightweight notifications) ────────────
 def trigger_morning_scan():
     print(f"Triggering morning scan — {ist_str()}")
     if trigger_github_workflow("morning_scan.yml"):
-        send_telegram(f"⏳ <b>Morning Scan triggered</b>\n{ist_str()}\nGitHub Actions running scan. Report in ~25 mins.")
+        send_telegram(f"⏳ <b>Morning Scan triggered</b>\n{ist_str()}\nGitHub Actions processing 750 liquid stocks. Report in ~15 mins.")
     else:
         send_telegram(f"⚠️ Morning scan trigger failed at {ist_str()}\nTry manually: /run_morning")
 
@@ -136,9 +135,7 @@ def analyse_stock(sym):
         df = yf.download(sym+'.NS', period="12mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty or len(df)<30:
             return f"❌ No data for {sym}. Check symbol name."
-        # Standardize columns
-        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple) else str(c).capitalize()
-                      for c in df.columns]
+        df.columns = [str(c[0]).capitalize() if isinstance(c, tuple) else str(c).capitalize() for c in df.columns]
         close=df['Close'].squeeze(); volume=df['Volume'].squeeze()
         curr=float(close.iloc[-1]); prev=float(close.iloc[-2])
         if math.isnan(curr) or math.isnan(prev):
@@ -180,7 +177,6 @@ def analyse_stock(sym):
             strike=round(curr*1.03/50)*50; prem=round(curr*0.028,1); cap=round(prem*lot)
             opt_txt=f"\n🎯 <b>OPTIONS:</b> {sym} {strike} CE | Prem ~₹{prem} | Lot {lot} | Capital ~₹{cap:,}\n⚠️ Verify in Zerodha Options Chain"
 
-        # Base analysis (unchanged from v5.0)
         base_result = f"""🔍 <b>ANALYSIS — {sym}</b>
 ⏰ {ist_str()} (15 min delayed)
 
@@ -202,7 +198,6 @@ Position : {max_shares} shares = ₹{max_shares*curr:,.0f} (2% risk on ₹2L)
 
 ⚠️ Verify price in Zerodha before trading"""
 
-        # Add SMC analysis (new in v6.0)
         smc_section = ""
         try:
             from smc_engine import calculate_smc_score, format_smc_section
@@ -212,7 +207,6 @@ Position : {max_shares} shares = ₹{max_shares*curr:,.0f} (2% risk on ₹2L)
             print(f"SMC error for {sym}: {smc_err}")
 
         return base_result + smc_section
-
     except Exception as e:
         return f"❌ Error: {str(e)[:100]}"
 
@@ -222,8 +216,8 @@ def process_command(text, chat_id):
     parts = text.strip().split(); cmd=parts[0].lower(); args=parts[1:]
 
     if cmd in ['/start','/help']:
-        return """🤖 <b>NSE Trading Bot v6.0 — SMC Edition</b>
-24/7 Active | Instant Response
+        return """🤖 <b>NSE Trading Bot v7.0 — Optimized Edition</b>
+24/7 Active | Private Repository Guard Verified
 
 📈 <b>RECORD TRADES</b>
 /buy STOCK PRICE QTY
@@ -240,21 +234,17 @@ def process_command(text, chat_id):
 /market — live indices
 
 🔄 <b>MANUAL TRIGGERS</b>
-/run_morning — trigger morning SMC scan
-/run_midday — trigger midday now
-/run_evening — trigger evening now
-/run_confluence — trigger confluence scan
+/run_morning — trigger 750 stock morning scan
+/run_midday — trigger midday update now
+/run_evening — trigger closing profile now
+/run_confluence — trigger confluence core check
 
-⏰ <b>AUTO REPORTS</b>
-8:00 AM — Morning scan (SMC enhanced)
-12:00 PM — Midday update
-8:00 PM — Evening update
-9:15, 11:00, 13:00, 14:30 — Confluence (7-force)
-
-🧠 <b>SMC IN /analyse:</b>
-Market Stage | Order Blocks | FVG
-BOS/CHoCH | Liquidity Sweeps
-Premium/Discount | Inducement | Killzone"""
+⏰ <b>AUTO SCANS (via Cron-job.org)</b>
+8:00 AM — Morning watch list (750 stocks ceiling)
+10:15 AM — Confluence Alpha Scan
+12:00 PM — Midday update P&L
+1:30 PM — Confluence Beta Scan
+2:45 PM — BTST power hour momentum scanner"""
 
     elif cmd == '/ping':
         return f"🟢 Bot alive!\n⏰ {ist_str()}"
@@ -283,8 +273,8 @@ Premium/Discount | Inducement | Killzone"""
 
     elif cmd == '/run_morning':
         if trigger_github_workflow("morning_scan.yml"):
-            return f"✅ Morning scan triggered!\nGitHub Actions running. Report in ~25 mins.\n⏰ {ist_str()}"
-        return "❌ Failed to trigger. Check GitHub token."
+            return f"✅ Morning scan triggered!\nCapped at 750 liquid stocks. Report in ~15 mins.\n⏰ {ist_str()}"
+        return "❌ Failed to trigger. Check GitHub credentials."
 
     elif cmd == '/run_midday':
         if trigger_github_workflow("midday_update.yml"):
@@ -298,7 +288,7 @@ Premium/Discount | Inducement | Killzone"""
 
     elif cmd == '/run_confluence':
         if trigger_github_workflow("confluence_scan.yml"):
-            return f"✅ Confluence scan triggered!\n⏰ {ist_str()}"
+            return f"✅ Optimized Confluence scan triggered!\n⏰ {ist_str()}"
         return "❌ Failed to trigger."
 
     elif cmd == '/buy':
@@ -426,17 +416,17 @@ def webhook():
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status":"alive","time":ist_str(),"version":"6.0-SMC"})
+    return jsonify({"status":"alive","time":ist_str(),"version":"7.0-Optimized"})
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({"status":"NSE Bot v5.0 — Render (Telegram) + GitHub Actions (Scans)"})
+    return jsonify({"status":"NSE Bot v7.0 — Sliced 750 Universe Engine Active"})
 
 # Manual trigger routes
 @app.route('/run_morning', methods=['GET'])
 def manual_morning():
     ok=trigger_github_workflow("morning_scan.yml")
-    if ok: send_telegram(f"⏳ <b>Morning scan triggered manually</b>\n{ist_str()}\nReport in ~25 mins.")
+    if ok: send_telegram(f"⏳ <b>Morning scan triggered manually</b>\n{ist_str()}\nProcessing 750 Stocks.")
     return jsonify({"status":"triggered" if ok else "failed","time":ist_str()})
 
 @app.route('/run_midday', methods=['GET'])
@@ -454,21 +444,20 @@ def manual_confluence():
     ok=trigger_github_workflow("confluence_scan.yml")
     return jsonify({"status":"triggered" if ok else "failed","time":ist_str()})
 
+@app.route('/run_btst', methods=['GET'])
+def manual_btst():
+    ok = trigger_github_workflow("btst_scan.yml")
+    if ok: send_telegram(f"⚡ <b>BTST scan triggered</b>\n{ist_str()}\nPower Hour analysis active.")
+    return jsonify({"status": "triggered" if ok else "failed", "time": ist_str()})
 
-# ============================================================
-# ADDITION 1 — PRICE MONITOR
-# Checks open trades every 15 mins during market hours
-# Sends instant Telegram alerts for SL/Target hits
-# One alert per stock per day — no spam
-# ============================================================
-_alerted_today = {}  # {stock_event: date} to avoid spam
+# ── PRICE MONITOR ALERTS ──────────────────────────────────────
+_alerted_today = {}  
 
 def check_price_alerts():
     """Monitor open trades — fires every 15 mins during market hours"""
     try:
         now = now_ist()
         today = now.strftime('%Y-%m-%d')
-        # Only Mon-Fri during market hours 9:15 AM - 3:30 PM
         if now.weekday() >= 5: return
         if now.hour < 9 or now.hour >= 16: return
         if now.hour == 9 and now.minute < 15: return
@@ -477,8 +466,7 @@ def check_price_alerts():
         if not sheet: return
         ws = sheet.worksheet("Open Trades")
         trades = ws.get_all_records()
-        if not trades:
-            return
+        if not trades: return
         print(f"Price monitor: checking {len(trades)} trades at {now.strftime('%I:%M %p IST')}")
 
         for t in trades:
@@ -491,8 +479,7 @@ def check_price_alerts():
                 sl = float(t.get('Stop Loss', 0) or entry * 0.97)
                 if not entry or not qty: continue
 
-                df = yf.download(sym + '.NS', period='1d', interval='5m',
-                                 progress=False, auto_adjust=True)
+                df = yf.download(sym + '.NS', period='1d', interval='5m', progress=False, auto_adjust=True)
                 if df.empty: continue
                 curr = float(df['Close'].squeeze().iloc[-1])
                 if math.isnan(curr): continue
@@ -501,90 +488,42 @@ def check_price_alerts():
                 pnl_pct = ((curr - entry) / entry) * 100
                 t1 = round(entry + (target - entry) * 0.5, 2)
 
-                # Alert keys — one per day per event
                 sl_key = f"{sym}_SL_{today}"
                 t1_key = f"{sym}_T1_{today}"
                 t2_key = f"{sym}_T2_{today}"
 
-                # 🛑 STOP LOSS HIT
                 if curr <= sl and sl_key not in _alerted_today:
                     _alerted_today[sl_key] = today
-                    send_telegram(f"""🛑 <b>STOP LOSS HIT — {sym}</b>
-⏰ {now.strftime('%I:%M %p IST')}
+                    send_telegram(f"""🛑 <b>STOP LOSS HIT — {sym}</b>\n⏰ {now.strftime('%I:%M %p IST')}\n\nCurrent  : ₹{curr:.2f}\nSL       : ₹{sl:.2f}\nEntry    : ₹{entry:.2f}\nLoss     : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)\n\n<b>EXIT IMMEDIATELY in Zerodha</b>\nThen use /sell {sym} {curr:.2f} to update records""")
 
-Current  : ₹{curr:.2f}
-SL       : ₹{sl:.2f}
-Entry    : ₹{entry:.2f}
-Loss     : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
-
-<b>EXIT IMMEDIATELY in Zerodha</b>
-Then use /sell {sym} {curr:.2f} to update records""")
-                    print(f"🛑 SL alert: {sym}")
-
-                # 🎯 TARGET 1 HIT (halfway)
                 elif curr >= t1 and curr < target and t1_key not in _alerted_today:
                     _alerted_today[t1_key] = today
-                    send_telegram(f"""🎯 <b>TARGET 1 HIT — {sym}</b>
-⏰ {now.strftime('%I:%M %p IST')}
+                    send_telegram(f"""🎯 <b>TARGET 1 HIT — {sym}</b>\n⏰ {now.strftime('%I:%M %p IST')}\n\nCurrent  : ₹{curr:.2f}\nTarget 1 : ₹{t1:.2f} ✅\nTarget 2 : ₹{target:.2f} (hold remaining)\nEntry    : ₹{entry:.2f}\nProfit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)\n\n<b>Action: SELL {qty//2} shares now (50% exit)</b>\nHold remaining {qty - qty//2} shares for ₹{target:.2f}\nMove SL up to entry ₹{entry:.2f} (protect breakeven)""")
 
-Current  : ₹{curr:.2f}
-Target 1 : ₹{t1:.2f} ✅
-Target 2 : ₹{target:.2f} (hold remaining)
-Entry    : ₹{entry:.2f}
-Profit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
-
-<b>Action: SELL {qty//2} shares now (50% exit)</b>
-Hold remaining {qty - qty//2} shares for ₹{target:.2f}
-Move SL up to entry ₹{entry:.2f} (protect breakeven)""")
-                    print(f"🎯 T1 alert: {sym}")
-
-                # 🎯🎯 FULL TARGET HIT
                 elif curr >= target and t2_key not in _alerted_today:
                     _alerted_today[t2_key] = today
-                    send_telegram(f"""🎯🎯 <b>FULL TARGET HIT — {sym}</b>
-⏰ {now.strftime('%I:%M %p IST')}
-
-Current  : ₹{curr:.2f}
-Target   : ₹{target:.2f} ✅✅
-Entry    : ₹{entry:.2f}
-Profit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)
-
-<b>Action: EXIT ALL remaining shares NOW</b>
-Then use /sell {sym} {curr:.2f} to update records""")
-                    print(f"🎯🎯 T2 alert: {sym}")
+                    send_telegram(f"""🎯🎯 <b>FULL TARGET HIT — {sym}</b>\n⏰ {now.strftime('%I:%M %p IST')}\n\nCurrent  : ₹{curr:.2f}\nTarget   : ₹{target:.2f} ✅✅\nEntry    : ₹{entry:.2f}\nProfit   : ₹{pnl:+,.0f} ({pnl_pct:+.1f}%)\n\n<b>Action: EXIT ALL remaining shares NOW</b>\nThen use /sell {sym} {curr:.2f} to update records""")
 
             except Exception as e:
                 print(f"Price check error {sym}: {e}")
             time.sleep(0.5)
-
     except Exception as e:
         print(f"Price monitor error: {e}")
 
-# ── Scheduler ─────────────────────────────────────────────────
-# Scan triggers (morning/midday/evening/confluence/btst) are
-# handled by cron-job.org externally — no duplicates.
-# APScheduler only runs the price monitor (SL/Target alerts).
+# ── Scheduler Core ────────────────────────────────────────────
 def start_scheduler():
     scheduler = BackgroundScheduler(timezone=IST)
-    # Price monitor only — every 15 mins during market hours
     for _h in range(9, 16):
         for _m in [0, 15, 30, 45]:
             if _h == 9 and _m < 15: continue
             if _h == 15 and _m > 30: continue
-            scheduler.add_job(check_price_alerts, CronTrigger(
-                hour=_h, minute=_m, day_of_week='mon-fri', timezone=IST))
+            scheduler.add_job(check_price_alerts, CronTrigger(hour=_h, minute=_m, day_of_week='mon-fri', timezone=IST))
     scheduler.start()
-    print("✅ Scheduler started — Price monitor every 15 mins (scans via cron-job.org)")
-
-@app.route('/run_btst', methods=['GET'])
-def manual_btst():
-    ok = trigger_github_workflow("btst_scan.yml")
-    if ok: send_telegram(f"⚡ <b>BTST scan triggered</b>\n{ist_str()}\nReport + email in ~15 mins.")
-    return jsonify({"status": "triggered" if ok else "failed", "time": ist_str()})
+    print("✅ Scheduler started — Price monitor active every 15 mins (scans via cron-job.org)")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"NSE Bot v7.0 starting on port {port} — {ist_str()}")
     start_scheduler()
-    send_telegram(f"🚀 <b>NSE Bot v7.0 Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Scans triggered by cron-job.org (no duplicates)\n✅ Price monitor every 15 mins\n✅ BTST scanner added (2:45 PM daily)\n\nSend /help for commands")
+    send_telegram(f"🚀 <b>NSE Bot v7.0 Online!</b>\n⏰ {ist_str()}\n\n✅ Telegram bot active 24/7\n✅ Private Repo Guard Active (750 Max Universe)\n✅ Confluence updates optimized to 2x daily\n✅ Price monitor every 15 mins\n\nSend /help for commands")
     app.run(host='0.0.0.0', port=port)
